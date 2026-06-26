@@ -1,0 +1,31 @@
+{
+  "model": "LSTM",
+  "des": "lstm_baseline",
+  "dataset": "pv2017",
+  "year": 2017,
+  "num_samples": 8760,
+  "pred_len": 24,
+  "label_len": 48,
+  "lookback_len": 168,
+  "num_variates": 5,
+  "target_idx": 4,
+  "lstm_hidden_size": 128,
+  "lstm_num_layers": 2,
+  "lstm_dropout": 0.1,
+  "lstm_bidirectional": false,
+  "batch_size": 32,
+  "learning_rate": 0.00019,
+  "epochs": 100,
+  "train_ratio": 0.9,
+  "device": "cuda",
+  "metrics": {
+    "RMSE": 2.13323712348938,
+    "MAE": 1.2521388530731201,
+    "R2": 0.9059717655181885,
+    "best_sample_idx": 722,
+    "num_test_samples": 857,
+    "best_epoch": 29,
+    "train_time_sec": 229.34,
+    "total_params": 216696
+  }
+}

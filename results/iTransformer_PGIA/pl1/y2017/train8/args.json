@@ -1,0 +1,46 @@
+{
+  "model": "iTransformer_PGIA",
+  "des": "ablation_full",
+  "dataset": "pv2017_ext",
+  "year": 2017,
+  "num_samples": 8760,
+  "pred_len": 1,
+  "lookback_len": 168,
+  "num_variates": 17,
+  "target_idx": 4,
+  "dim": 128,
+  "depth": 3,
+  "heads": 1,
+  "dim_head": 32,
+  "phys_hidden_dim": 32,
+  "psg_hidden_dim": 16,
+  "wase_hidden_dim": 32,
+  "dsc_kernels": [
+    3,
+    5
+  ],
+  "dsc_dropout": 0.1,
+  "batch_size": 32,
+  "learning_rate": 0.00019,
+  "epochs": 300,
+  "train_ratio": 0.8,
+  "device": "cuda",
+  "metrics": {
+    "RMSE": 1.4772425889968872,
+    "MAE": 0.8084311485290527,
+    "R2": 0.9563900232315063,
+    "best_sample_idx": 1381,
+    "num_test_samples": 1719,
+    "best_epoch": 300,
+    "train_time_sec": 3356.04,
+    "total_params": 557040,
+    "ppu_gates_final": {
+      "gamma_psg": -3.0791876316070557,
+      "gamma_wase": 1.000041127204895,
+      "gamma_dsc": 0.02022705413401127,
+      "alpha_pgia_layer0": 0.9697691798210144,
+      "alpha_pgia_layer1": 1.3404197692871094,
+      "alpha_pgia_layer2": 0.5086076855659485
+    }
+  }
+}

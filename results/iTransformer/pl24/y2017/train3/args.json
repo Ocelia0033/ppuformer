@@ -1,0 +1,29 @@
+{
+  "model": "iTransformer",
+  "des": "baseline",
+  "dataset": "pv2017",
+  "year": 2017,
+  "num_samples": 8760,
+  "pred_len": 24,
+  "lookback_len": 168,
+  "num_variates": 5,
+  "dim": 128,
+  "depth": 5,
+  "heads": 1,
+  "dim_head": 32,
+  "batch_size": 32,
+  "learning_rate": 0.00019,
+  "epochs": 100,
+  "train_ratio": 0.9,
+  "device": "cuda",
+  "metrics": {
+    "RMSE": 2.343397378921509,
+    "MAE": 1.3032116889953613,
+    "R2": 0.8865323662757874,
+    "best_sample_idx": 313,
+    "num_test_samples": 857,
+    "best_epoch": 100,
+    "train_time_sec": 1346.54,
+    "total_params": 779128
+  }
+}
