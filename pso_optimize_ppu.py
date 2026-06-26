@@ -33,6 +33,7 @@ from sklearn.preprocessing import MinMaxScaler
 
 from model.iTransformer_PGIA import iTransformerPGIA
 from iTransformer import iTransformer
+from data_provider.split_utils import strict_chronological_split
 
 # ========================== 日志收集 ==========================
 
@@ -142,25 +143,17 @@ def load_data(ds_name):
 
 
 def create_dataloaders(features, timestamps, lookback_len, pred_len,
-                       train_ratio, batch_size, target_idx):
-    total_samples = len(features) - lookback_len - pred_len + 1
-    train_size = int(total_samples * train_ratio)
-    train_end_idx = train_size + lookback_len + pred_len - 1
-    train_data_raw = features[:train_end_idx]
-    train_timestamps = timestamps[:train_end_idx]
-    test_data_raw = features[train_size:]
-    test_timestamps = timestamps[train_size:]
+                       train_ratio, batch_size, target_idx, verbose=True):
+    sp = strict_chronological_split(
+        features, timestamps, lookback_len, pred_len, train_ratio,
+        verbose=verbose,
+    )
 
-    scaler = MinMaxScaler()
-    scaler.fit(train_data_raw)
-    train_data = scaler.transform(train_data_raw)
-    test_data = scaler.transform(test_data_raw)
+    target_min = sp["scaler"].data_min_[target_idx]
+    target_max = sp["scaler"].data_max_[target_idx]
 
-    target_min = scaler.data_min_[target_idx]
-    target_max = scaler.data_max_[target_idx]
-
-    train_dataset = TimeSeriesDataset(train_data, train_timestamps, lookback_len, pred_len, target_idx)
-    test_dataset = TimeSeriesDataset(test_data, test_timestamps, lookback_len, pred_len, target_idx)
+    train_dataset = TimeSeriesDataset(sp["train_data"], sp["train_timestamps"], lookback_len, pred_len, target_idx)
+    test_dataset = TimeSeriesDataset(sp["test_data"], sp["test_timestamps"], lookback_len, pred_len, target_idx)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, drop_last=False)
@@ -219,7 +212,8 @@ def evaluate_params(dim, depth, heads, dim_head, lr, gate_lr_mult,
     try:
         features, timestamps = load_data(dataset_name)
         train_loader, test_loader, target_min, target_max = create_dataloaders(
-            features, timestamps, lookback_len, pred_len, train_ratio, batch_size, target_idx
+            features, timestamps, lookback_len, pred_len, train_ratio, batch_size, target_idx,
+            verbose=False,
         )
 
         model = iTransformerPGIA(

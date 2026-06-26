@@ -13,6 +13,7 @@ from sklearn.preprocessing import MinMaxScaler
 
 from iTransformer import iTransformer
 from utils import create_save_paths, save_args_json, write_full_report, append_run_summary
+from data_provider.split_utils import strict_chronological_split
 
 
 # ========================== 配置区（你只需要改这里）==========================
@@ -95,38 +96,26 @@ def load_data(dataset_name):
 
 
 def create_dataloaders(features, timestamps, lookback_len, pred_len, train_ratio, batch_size):
-    total_samples = len(features) - lookback_len - pred_len + 1
-    train_size = int(total_samples * train_ratio)
-
-    train_end_idx = train_size + lookback_len + pred_len - 1
-    train_data_raw = features[:train_end_idx]
-    train_timestamps = timestamps[:train_end_idx]
-
-    test_data_raw = features[train_size:]
-    test_timestamps = timestamps[train_size:]
-
-    scaler = MinMaxScaler()
-    scaler.fit(train_data_raw)
-
-    train_data = scaler.transform(train_data_raw)
-    test_data = scaler.transform(test_data_raw)
+    sp = strict_chronological_split(
+        features, timestamps, lookback_len, pred_len, train_ratio,
+    )
 
     target_idx = features.shape[1] - 1
-    target_min = scaler.data_min_[target_idx]
-    target_max = scaler.data_max_[target_idx]
+    target_min = sp["scaler"].data_min_[target_idx]
+    target_max = sp["scaler"].data_max_[target_idx]
 
-    train_dataset = TimeSeriesDataset(train_data, train_timestamps, lookback_len, pred_len)
-    test_dataset = TimeSeriesDataset(test_data, test_timestamps, lookback_len, pred_len)
+    train_dataset = TimeSeriesDataset(sp["train_data"], sp["train_timestamps"], lookback_len, pred_len)
+    test_dataset = TimeSeriesDataset(sp["test_data"], sp["test_timestamps"], lookback_len, pred_len)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
     train_eval_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, drop_last=False)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, drop_last=False)
 
-    raw_test_target = test_data_raw[:, target_idx]
+    raw_test_target = sp["test_data_raw"][:, target_idx]
 
     return (
         train_loader, train_eval_loader, test_loader,
-        test_timestamps, target_min, target_max, raw_test_target,
+        sp["test_timestamps"], target_min, target_max, raw_test_target,
     )
 
 
