@@ -1,7 +1,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import Optional, Sequence
 
 import numpy as np
@@ -15,24 +14,37 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 # 画图通用工具
 # ----------------------------------------------------------------------
 #
-# 全局约束（与论文图风格一致）：
-#   1. 所有 loss / metric 曲线统一使用线性坐标，不使用 log scale；
-#   2. y 轴显示普通小数（0.01 / 0.1 / 1 / 10 ...），不使用 10^k 这种科学计数法；
+# 全局硬约束（与论文图风格一致，绝不允许任何函数破坏）：
+#   1. 所有 loss / MAE / MSE / R² 曲线一律使用线性坐标。
+#      —— 本模块**任何位置**都不会调用 plt.yscale("log") /
+#         ax.set_yscale("log")，也不会根据 loss 最大最小比值自动切到 log；
+#   2. y 轴显示普通十进制小数（0.01 / 0.1 / 1 / 10 / 100 ...），
+#      绝不使用 10^k / 1e-3 这种科学计数法，也不显示坐标轴偏移量；
 #   3. 调参 / 模块筛查 / PSO 阶段：第二条曲线叫 "Validation"，title 含 "Validation"；
 #      最终测试阶段：第二条曲线叫 "Test"，title 含 "Test"；
 #   4. 若前几轮 loss 特别大导致后段看不清，**不要**改成 log，
-#      而是再另存一张从 skip_epochs（默认 10）开始截取的局部图。
+#      而是再另存一张从 skip_epochs（默认 10）开始截取的局部线性图。
 # ----------------------------------------------------------------------
 
 
-def _apply_linear_y_axis(ax: plt.Axes, fmt: str = "%.4f") -> None:
-    """把 y 轴统一设成线性 + 普通数值显示，禁用科学计数法。"""
+def _apply_linear_y_axis(ax: plt.Axes, fmt: Optional[str] = None) -> None:
+    """把 y 轴统一设成线性 + 普通数值显示，禁用科学计数法 / 偏移量。
+
+    fmt = None（默认）：用 ScalarFormatter，根据数据范围自动选择普通小数显示，
+        既不会丢精度也不会出现 10^k。
+    fmt = "%.4f" 等：强制按指定 printf 格式显示。
+    """
     ax.set_yscale("linear")
     try:
-        ax.ticklabel_format(style="plain", axis="y")
+        ax.ticklabel_format(style="plain", axis="y", useOffset=False)
     except Exception:
         pass
-    ax.yaxis.set_major_formatter(mticker.FormatStrFormatter(fmt))
+    if fmt is None:
+        sf = mticker.ScalarFormatter(useOffset=False, useMathText=False)
+        sf.set_scientific(False)
+        ax.yaxis.set_major_formatter(sf)
+    else:
+        ax.yaxis.set_major_formatter(mticker.FormatStrFormatter(fmt))
 
 
 def save_curve(
@@ -45,18 +57,22 @@ def save_curve(
     title: str,
     ylim: Optional[tuple] = None,
     series_label: str = "Test",
-    y_fmt: str = "%.4f",
+    y_fmt: Optional[str] = None,
 ) -> None:
     """
-    单 metric 双曲线图（Train + {Test|Validation}）。
+    单 metric 双曲线图（Train + {Test|Validation}），**强制线性 y 轴**。
+
+    本函数永远不会启用 log y 轴；如果前几轮 loss 太大导致后段看不清，
+    请额外调用 :func:`save_curve_after_epoch` 另存一张从 skip_epochs 起的局部线性图。
 
     参数
     ----
     series_label : "Test" / "Validation"
         第二条曲线和 csv 列名的前缀。调参 / 筛查 / PSO 阶段传 "Validation"；
         最终评估阶段传 "Test"（默认）。
-    y_fmt : str
-        y 轴普通数值格式串，默认 4 位小数。
+    y_fmt : str | None
+        y 轴普通数值格式串。默认 None = 由 ScalarFormatter 自适应选择普通小数显示，
+        既不会出现 10^k 也不会丢失精度（推荐）。传 "%.4f" 等可强制固定小数位。
     """
     series_key = series_label.lower()
 
@@ -93,11 +109,14 @@ def save_curve_after_epoch(
     title: str,
     skip_epochs: int = 10,
     series_label: str = "Test",
-    y_fmt: str = "%.4f",
+    y_fmt: Optional[str] = None,
 ) -> None:
     """
-    从第 skip_epochs 个 epoch 开始截取的局部曲线（线性坐标）。
-    用于前几轮 loss 巨大导致整体图看不清时替代 log 坐标。
+    从第 skip_epochs 个 epoch 开始截取的局部曲线，**强制线性坐标**。
+
+    用于前几轮 loss 巨大导致整体图后段被压扁、看不出波动时的解决方案：
+    我们**不**改用 log 坐标，而是另存一张去掉前 skip_epochs 个 epoch 的
+    线性 zoom 图。y 轴同样禁用科学计数法 / 10^k。
     """
     n = len(epochs)
     start = min(skip_epochs, max(0, n - 2))
@@ -396,18 +415,26 @@ def write_full_report(
     """
     生成完整训练报告（曲线图、CSV、指标）。
 
+    **绘图协议（硬约束）**：
+        - 所有 loss / MAE / MSE / R² 曲线一律使用线性 y 轴；
+        - y 轴显示普通十进制小数，绝不使用 10^k / 1e-k 科学计数法；
+        - 前几轮 loss 太大导致后段看不清时，通过 ``skip_epochs_for_zoom``
+          另存一张去掉前 N 个 epoch 的**线性** zoom 图，而**不**改 log 坐标。
+
     phase : "test" / "val"
         - "test"（默认）：最终评估阶段，第二条曲线叫 "Test"，标题含 "Test"。
         - "val"：调参 / 模块筛查 / PSO 阶段，第二条曲线叫 "Validation"，标题含 "Validation"。
 
     skip_epochs_for_zoom : int
-        前几轮 loss 巨大时另存一张"从第 N 个 epoch 起"的局部图（线性坐标）。
+        前几轮 loss 巨大时另存一张"从第 N 个 epoch 起"的局部图（**线性坐标**）。
         默认跳过 10 个 epoch。设为 0 关闭该图。
 
     loss_ylim : tuple | None
-        旧参数，保留只为向后兼容；新协议下完整 loss 图固定展示真实全范围，
-        不再依赖人工裁切；前几轮 loss 巨大时通过 skip_epochs_for_zoom 另存局部图。
+        **已弃用**，签名仅为向后兼容保留，函数内部不再使用。
+        新协议下完整 loss 图固定展示真实全范围，不再依赖人工裁 y 轴；
+        前几轮 loss 巨大时改用 skip_epochs_for_zoom 另存局部线性图。
     """
+    del loss_ylim  # 显式忽略，避免静态检查告警；该参数已弃用
     epochs = history["epochs"]
 
     series_label = "Validation" if phase == "val" else "Test"

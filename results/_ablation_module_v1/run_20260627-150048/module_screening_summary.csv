@@ -1,0 +1,7 @@
+name,use_psg,use_wase,use_dsc,use_pgia,val_best_epoch,val_rmse,val_mae,val_r2,val_rmse_last,train_time_sec,params,experiment_phase,dataset,seed,optimizer,learning_rate,gate_lr_mult,weight_decay,batch_size,epochs,pred_len,lookback_len,dim,depth,heads,dim_head
+iTransformer-17,False,False,False,False,50,2.2180831336839812,1.471189260482788,0.8950856328010559,2.2180831336839812,427.5,691230,module_screening_first_round,pv2017_ext,35040,AdamW,0.00019,5,0.0,32,50,4,168,128,4,2,32
+PSG_only,True,False,False,False,50,2.277628388455241,1.5111531019210815,0.8893771171569824,2.277628388455241,434.0,693936,module_screening_first_round,pv2017_ext,35040,AdamW,0.00019,5,0.0,32,50,4,168,128,4,2,32
+WASE_only,False,True,False,False,38,2.879722200082153,1.6869444847106934,0.8231600522994995,2.8964619857529823,442.2,794362,module_screening_first_round,pv2017_ext,35040,AdamW,0.00019,5,0.0,32,50,4,168,128,4,2,32
+DSC_only,False,False,True,False,40,173.8343826120857,43.629432678222656,-643.3926391601562,183.64436802213675,422.4,692421,module_screening_first_round,pv2017_ext,35040,AdamW,0.00019,5,0.0,32,50,4,168,128,4,2,32
+PGIA_only,False,False,False,True,50,1.8315259810137605,1.181037425994873,0.9284671545028687,1.8315259810137605,457.7,730018,module_screening_first_round,pv2017_ext,35040,AdamW,0.00019,5,0.0,32,50,4,168,128,4,2,32
+Full,True,True,True,True,50,29.65738398451029,10.911441802978516,-17.756200790405273,29.65738398451029,483.0,837047,module_screening_first_round,pv2017_ext,35040,AdamW,0.00019,5,0.0,32,50,4,168,128,4,2,32

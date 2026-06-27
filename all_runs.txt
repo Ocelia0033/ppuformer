@@ -1,0 +1,9 @@
+# 累积实验记录（每跑完一次自动追加一行）
+datetime             model                 year    pl    train   des                 RMSE        MAE         R2          best_ep   time(s)  
+--------------------------------------------------------------------------------------------------------------------------------------------
+2026-06-27 15:46:06  iTransformerPGIA_abl  2017    4     iTrans  module_screen_v1_v  2.2181      1.4712      0.8951      50        427.5    
+2026-06-27 15:46:06  iTransformerPGIA_abl  2017    4     PSG_on  module_screen_v1_v  2.2776      1.5112      0.8894      50        434.0    
+2026-06-27 15:46:06  iTransformerPGIA_abl  2017    4     WASE_o  module_screen_v1_v  2.8797      1.6869      0.8232      38        442.2    
+2026-06-27 15:46:06  iTransformerPGIA_abl  2017    4     DSC_on  module_screen_v1_v  173.8344    43.6294     -643.3926   40        422.4    
+2026-06-27 15:46:06  iTransformerPGIA_abl  2017    4     PGIA_o  module_screen_v1_v  1.8315      1.1810      0.9285      50        457.7    
+2026-06-27 15:46:06  iTransformerPGIA_abl  2017    4     Full    module_screen_v1_v  29.6574     10.9114     -17.7562    50        483.0    
