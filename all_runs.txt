@@ -153,3 +153,4 @@ datetime             model                 year    pl    train   des            
 2026-06-21 17:20:37  LSTM                  2017    4     9       lstm_bare           2.5253      1.3323      0.8726      200       109.5    
 2026-06-21 17:49:13  iTransformer_PGIA     2017    1     12      ppu_former_v2       2.5161      1.3334      0.8735      100       1158.3   
 2026-06-26 13:38:42  iTransformer          2017    4     11      baseline            2.1104      1.3237      0.9111      100       1352.7   
+2026-06-26 14:47:51  iTransformer          2017    4     12      baseline            6.4957      5.0719      0.1577      100       312.5    

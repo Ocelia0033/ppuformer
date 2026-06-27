@@ -43,8 +43,8 @@ dim_head = 32                 # 每个 head 的维度
 # 改成 128 会导致每个 epoch 的梯度步数只有 ~62 次（vs 246 次），训不出来。
 # 这是 iTransformer 的官方推荐配置（原论文 / TSlib scripts 在 ETT 类数据集都用 batch=16~32）。
 epochs = 100
-batch_size = 32
-learning_rate = 0.000190
+batch_size = 128
+learning_rate = 0.001
 
 # ---------- 数据划分 ----------
 train_ratio = 0.8             # 训练集占比
