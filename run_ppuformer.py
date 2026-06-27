@@ -4,57 +4,64 @@ import time
 import json
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from sklearn.preprocessing import MinMaxScaler
 
-from iTransformer import iTransformer
+from model.iTransformer_PGIA import iTransformerPGIA
 from utils import create_save_paths, save_args_json, write_full_report, append_run_summary
 from data_provider.split_utils import strict_chronological_split
 
 
 # ========================== 配置区（你只需要改这里）==========================
 
-# ---------- 实验身份（影响保存路径） ----------
-model_name = "iTransformer"   # 第1级目录名。换模型时改这个
-des = "noRevIN"               # 实验描述，仅写入 args.json 用于区分（baseline / ablation_xx / tune1 ...）
+# ---------- 实验身份 ----------
+# model_name 会根据下面的模块开关自动生成（见 main() 开头），不用手动改。
+# 例如：PPU_PGIA / PPU_PGIA_PSG / PPU_Full / iTransformer17 / PPU_PGIA_noRevIN
+# des 是自由文字描述，写入 args.json 和 all_runs.txt，方便你备注。
+des = ""                      # 留空=自动生成，或手动写如 "test1" "50ep验证" 等
 
 # ---------- 数据集 ----------
-dataset_name = "pv2017"       # dataset/ 下的 csv 文件名（不含 .csv）。pv2017 / pv2018 / pv2019
-year = None                   # 留 None 自动从 dataset_name 抽（pv2017→2017）；要手动覆盖就填整数
+dataset_name = "pv2017_ext"   # 17 维扩展特征
+year = None                   # 留 None 自动推导
 
-# ---------- 预测任务（影响第2级目录 pl{pred_len}） ----------
-pred_len = 4                  # 1=1h预测  4=4h预测  8=8h预测  24=24h预测
-lookback_len = 168            # 回看窗口（小时数），168 = 7天
-num_variates = 5              # 输入特征数（CSV 里第 2-6 列共 5 个）
+# ---------- 预测任务 ----------
+pred_len = 4
+lookback_len = 168
+num_variates = 17             # pv2017_ext 有 17 列特征
+target_idx = 4                # features[:, 4] = Active_Power
+
+# ---------- 模块开关（改 True/False 就行）----------
+use_psg  = False              # Physics State Gate
+use_wase = False              # Weather Aware Spectral Enhancement
+use_dsc  = False              # Depthwise Separable Conv
+use_pgia = True               # Physics Guided Instance-Aware
+use_ppu  = True               # Progressive Physical Unlocking（γ 从 0 起步）
+use_revin = True              # RevIN 可逆实例归一化
 
 # ---------- 模型超参 ----------
-dim = 128                     # 隐藏维度
-depth = 5                     # transformer 层数
-heads = 1                     # 注意力头数
-dim_head = 32                 # 每个 head 的维度
+dim = 128
+depth = 4
+heads = 2
+dim_head = 32
 
 # ---------- 训练超参 ----------
-# iTransformer 由于 RevIN 反归一化的特性，对 batch_size 比其它 baseline 敏感。
-# 历史所有 R²≈0.95 的成功跑分（train1/4/5）都是 batch=32 拿到的；
-# 改成 128 会导致每个 epoch 的梯度步数只有 ~62 次（vs 246 次），训不出来。
-# 这是 iTransformer 的官方推荐配置（原论文 / TSlib scripts 在 ETT 类数据集都用 batch=16~32）。
-epochs = 200
-batch_size = 128
-learning_rate = 0.001
+epochs = 50
+batch_size = 32
+learning_rate = 1.9e-4
+weight_decay = 0.0
+gate_lr_mult = 5              # γ 门参数的学习率倍率
 
 # ---------- 随机种子 ----------
 seed = 35040                  # 固定种子，保证可复现
 
 # ---------- 数据划分 ----------
-train_ratio = 0.8             # 训练集占比
+train_ratio = 0.8
 
 # ---------- 输出 ----------
-results_dir = "results"       # 顶层结果目录
-loss_plot_ylim = (0, 1)           # loss-zoom 纵轴范围
+results_dir = "results"
+loss_plot_ylim = None
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -71,11 +78,12 @@ torch.backends.cudnn.deterministic = True
 
 
 class TimeSeriesDataset(Dataset):
-    def __init__(self, data, timestamps, lookback_len, pred_len):
+    def __init__(self, data, timestamps, lookback_len, pred_len, target_idx):
         self.data = data
         self.timestamps = timestamps
         self.lookback_len = lookback_len
         self.pred_len = pred_len
+        self.target_idx = target_idx
         self.length = len(data) - lookback_len - pred_len + 1
 
     def __len__(self):
@@ -83,7 +91,10 @@ class TimeSeriesDataset(Dataset):
 
     def __getitem__(self, idx):
         x = self.data[idx: idx + self.lookback_len]
-        y = self.data[idx + self.lookback_len: idx + self.lookback_len + self.pred_len, -1]
+        y = self.data[
+            idx + self.lookback_len: idx + self.lookback_len + self.pred_len,
+            self.target_idx,
+        ]
         return torch.FloatTensor(x), torch.FloatTensor(y)
 
 
@@ -91,7 +102,6 @@ class TimeSeriesDataset(Dataset):
 
 
 def infer_year_from_dataset(name: str) -> int:
-    """从数据集名字里抽出 4 位年份，例如 pv2017 -> 2017。"""
     match = re.search(r"(20\d{2})", name)
     if match:
         return int(match.group(1))
@@ -106,28 +116,27 @@ def load_data(dataset_name):
     return features, timestamps
 
 
-def create_dataloaders(features, timestamps, lookback_len, pred_len, train_ratio, batch_size):
+def create_dataloaders(features, timestamps):
     sp = strict_chronological_split(
         features, timestamps, lookback_len, pred_len, train_ratio,
     )
 
-    target_idx = features.shape[1] - 1
-    target_min = sp["scaler"].data_min_[target_idx]
-    target_max = sp["scaler"].data_max_[target_idx]
+    t_min = sp["scaler"].data_min_[target_idx]
+    t_max = sp["scaler"].data_max_[target_idx]
 
-    train_dataset = TimeSeriesDataset(sp["train_data"], sp["train_timestamps"], lookback_len, pred_len)
-    test_dataset = TimeSeriesDataset(sp["test_data"], sp["test_timestamps"], lookback_len, pred_len)
+    train_ds = TimeSeriesDataset(sp["train_data"], sp["train_timestamps"],
+                                 lookback_len, pred_len, target_idx)
+    test_ds = TimeSeriesDataset(sp["test_data"], sp["test_timestamps"],
+                                lookback_len, pred_len, target_idx)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
-    train_eval_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, drop_last=False)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, drop_last=False)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=True)
+    train_eval_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=False, drop_last=False)
+    test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False, drop_last=False)
 
     raw_test_target = sp["test_data_raw"][:, target_idx]
 
-    return (
-        train_loader, train_eval_loader, test_loader,
-        sp["test_timestamps"], target_min, target_max, raw_test_target,
-    )
+    return (train_loader, train_eval_loader, test_loader,
+            sp["test_timestamps"], t_min, t_max, raw_test_target)
 
 
 # ========================== 训练与评估 ==========================
@@ -140,16 +149,15 @@ def train_one_epoch(model, train_loader, optimizer, criterion):
         x, y = x.to(device), y.to(device)
         optimizer.zero_grad()
         pred = model(x)
-        pred_active_power = pred[:, :, -1]
-        loss = criterion(pred_active_power, y)
+        pred_ap = pred[:, :, target_idx]
+        loss = criterion(pred_ap, y)
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
     return total_loss / len(train_loader)
 
 
-def evaluate(model, loader, criterion, target_min, target_max):
-    """在 loader 上做完整评估，返回归一化 MSE loss + 反归一化指标 + 反归一化的预测/真实值。"""
+def evaluate(model, loader, criterion, t_min, t_max):
     model.eval()
     total_loss = 0.0
     all_preds, all_targets = [], []
@@ -157,17 +165,17 @@ def evaluate(model, loader, criterion, target_min, target_max):
         for x, y in loader:
             x, y = x.to(device), y.to(device)
             pred = model(x)
-            pred_active_power = pred[:, :, -1]
-            loss = criterion(pred_active_power, y)
+            pred_ap = pred[:, :, target_idx]
+            loss = criterion(pred_ap, y)
             total_loss += loss.item()
-            all_preds.append(pred_active_power.cpu().numpy())
+            all_preds.append(pred_ap.cpu().numpy())
             all_targets.append(y.cpu().numpy())
     avg_loss = total_loss / len(loader)
     all_preds = np.concatenate(all_preds, axis=0)
     all_targets = np.concatenate(all_targets, axis=0)
 
-    preds_orig = all_preds * (target_max - target_min) + target_min
-    targets_orig = all_targets * (target_max - target_min) + target_min
+    preds_orig = all_preds * (t_max - t_min) + t_min
+    targets_orig = all_targets * (t_max - t_min) + t_min
 
     pf = preds_orig.flatten()
     tf = targets_orig.flatten()
@@ -185,40 +193,78 @@ def main():
     if year is None:
         year = infer_year_from_dataset(dataset_name)
 
+    # 根据开关自动生成 model_name（= 结果目录名）和 tag
+    modules_on = []
+    if use_psg:  modules_on.append("PSG")
+    if use_wase: modules_on.append("WASE")
+    if use_dsc:  modules_on.append("DSC")
+    if use_pgia: modules_on.append("PGIA")
+
+    if not modules_on:
+        model_name = "iTransformer17"
+    elif len(modules_on) == 4:
+        model_name = "PPU_Full"
+    else:
+        model_name = "PPU_" + "_".join(modules_on)
+    if not use_revin:
+        model_name += "_noRevIN"
+
+    tag = "+".join(modules_on) if modules_on else "allOff"
+    if not use_revin:
+        tag += "_noRevIN"
+
+    # des 留空时自动用 tag
+    actual_des = des if des else tag
+
     print(f"Device: {device}")
     print(f"Model: {model_name}  |  Dataset: {dataset_name} (year={year})")
+    print(f"des: {actual_des}  |  Modules: {tag}")
+    print(f"RevIN: {use_revin}  |  PPU: {use_ppu}")
     print(f"Lookback: {lookback_len}, Pred length: {pred_len}")
-    print(f"Epochs: {epochs}, Batch size: {batch_size}, LR: {learning_rate}")
+    print(f"Epochs: {epochs}, Batch: {batch_size}, LR: {learning_rate}")
     print("-" * 60)
 
     features, timestamps = load_data(dataset_name)
-    num_samples = features.shape[0]
-    print(f"Data loaded: {num_samples} samples, {features.shape[1]} features")
+    print(f"Data loaded: {features.shape[0]} samples, {features.shape[1]} features")
 
     (train_loader, train_eval_loader, test_loader,
-     test_timestamps, target_min, target_max, raw_test_target) = create_dataloaders(
-        features, timestamps, lookback_len, pred_len, train_ratio, batch_size,
+     test_timestamps, t_min, t_max, raw_test_target) = create_dataloaders(
+        features, timestamps,
     )
     print(f"Train batches: {len(train_loader)}, Test batches: {len(test_loader)}")
 
-    model = iTransformer(
+    model = iTransformerPGIA(
         num_variates=num_variates,
         lookback_len=lookback_len,
-        dim=dim,
-        depth=depth,
-        heads=heads,
-        dim_head=dim_head,
         pred_length=pred_len,
+        target_idx=target_idx,
+        dim=dim, depth=depth, heads=heads, dim_head=dim_head,
         num_tokens_per_variate=1,
-        use_reversible_instance_norm=False,
+        use_reversible_instance_norm=use_revin,
         flash_attn=True,
+        use_psg=use_psg,
+        use_wase=use_wase,
+        use_dsc=use_dsc,
+        use_pgia=use_pgia,
+        use_ppu=use_ppu,
     ).to(device)
 
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Model parameters: {total_params:,}")
     print("-" * 60)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    gate_params, other_params = [], []
+    for name, p in model.named_parameters():
+        if not p.requires_grad:
+            continue
+        if p.numel() == 1 and "gamma" in name:
+            gate_params.append(p)
+        else:
+            other_params.append(p)
+    optimizer = torch.optim.AdamW([
+        {"params": other_params, "lr": learning_rate, "weight_decay": weight_decay},
+        {"params": gate_params,  "lr": learning_rate * gate_lr_mult, "weight_decay": 0.0},
+    ])
     criterion = nn.MSELoss()
 
     paths = create_save_paths(
@@ -239,15 +285,14 @@ def main():
     }
 
     t0 = time.time()
-
     for epoch in range(1, epochs + 1):
         train_loss = train_one_epoch(model, train_loader, optimizer, criterion)
 
         _, train_mse, train_mae, train_r2, _, _ = evaluate(
-            model, train_eval_loader, criterion, target_min, target_max,
+            model, train_eval_loader, criterion, t_min, t_max,
         )
         test_loss, test_mse, test_mae, test_r2, _, _ = evaluate(
-            model, test_loader, criterion, target_min, target_max,
+            model, test_loader, criterion, t_min, t_max,
         )
 
         history["epochs"].append(epoch)
@@ -260,18 +305,18 @@ def main():
         history["train_r2"].append(train_r2)
         history["test_r2"].append(test_r2)
 
-        print(
-            f"Epoch [{epoch:3d}/{epochs}]  "
-            f"Train Loss: {train_loss:.6f}  Test Loss: {test_loss:.6f}  "
-            f"Test MAE: {test_mae:.4f}  Test R²: {test_r2:.4f}"
-        )
+        if epoch == 1 or epoch == epochs or epoch % 5 == 0:
+            print(
+                f"Epoch [{epoch:3d}/{epochs}]  "
+                f"Train Loss: {train_loss:.6f}  Test Loss: {test_loss:.6f}  "
+                f"Test MAE: {test_mae:.4f}  Test R²: {test_r2:.4f}"
+            )
 
     train_time_sec = time.time() - t0
 
-    # 标准协议：训练跑满后保存最终模型，测试集只在这里评估一次
     torch.save(model.state_dict(), paths["model_pth"])
     _, _, _, _, all_preds, all_targets = evaluate(
-        model, test_loader, criterion, target_min, target_max,
+        model, test_loader, criterion, t_min, t_max,
     )
 
     metrics = write_full_report(
@@ -285,7 +330,7 @@ def main():
         pred_len=pred_len,
         loss_ylim=loss_plot_ylim,
     )
-    metrics["best_epoch"] = int(epochs)   # 最终协议：报告的是跑满后最后一个 epoch 的模型
+    metrics["best_epoch"] = int(epochs)
     metrics["train_time_sec"] = round(train_time_sec, 2)
     metrics["total_params"] = int(total_params)
 
@@ -293,24 +338,29 @@ def main():
     print(f"RMSE: {metrics['RMSE']:.6f}")
     print(f"MAE:  {metrics['MAE']:.6f}")
     print(f"R2:   {metrics['R2']:.6f}")
-    print(f"Best epoch: {metrics['best_epoch']}")
     print(f"Train time: {metrics['train_time_sec']:.1f}s")
 
     config = {
         "model": model_name,
-        "des": des,
+        "des": actual_des,
+        "modules": tag,
         "dataset": dataset_name,
         "year": year,
-        "num_samples": int(num_samples),
         "pred_len": pred_len,
         "lookback_len": lookback_len,
         "num_variates": num_variates,
-        "dim": dim,
-        "depth": depth,
-        "heads": heads,
-        "dim_head": dim_head,
+        "target_idx": target_idx,
+        "use_psg": use_psg,
+        "use_wase": use_wase,
+        "use_dsc": use_dsc,
+        "use_pgia": use_pgia,
+        "use_ppu": use_ppu,
+        "use_revin": use_revin,
+        "dim": dim, "depth": depth, "heads": heads, "dim_head": dim_head,
         "batch_size": batch_size,
         "learning_rate": learning_rate,
+        "weight_decay": weight_decay,
+        "gate_lr_mult": gate_lr_mult,
         "epochs": epochs,
         "train_ratio": train_ratio,
         "device": str(device),

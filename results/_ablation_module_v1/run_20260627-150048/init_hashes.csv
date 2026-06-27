@@ -1,7 +1,0 @@
-name,use_pgia,backbone_full,backbone_shared,psg,wase,dsc
-iTransformer-17,False,2a3e6c3ce9c47999,2a3e6c3ce9c47999,-,-,-
-PSG_only,False,2a3e6c3ce9c47999,2a3e6c3ce9c47999,aad098194ec50ec0,-,-
-WASE_only,False,2a3e6c3ce9c47999,2a3e6c3ce9c47999,-,2f17c1c42b3fa44d,-
-DSC_only,False,2a3e6c3ce9c47999,2a3e6c3ce9c47999,-,-,b76a3fcb3912d2c0
-PGIA_only,True,ed88e99f727a2ea9,2f2d0a1d46148446,-,-,-
-Full,True,ed88e99f727a2ea9,2f2d0a1d46148446,aad098194ec50ec0,2f17c1c42b3fa44d,b76a3fcb3912d2c0

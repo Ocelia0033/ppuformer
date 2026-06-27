@@ -9,3 +9,4 @@ datetime             model                 year    pl    train   des            
 2026-06-27 15:46:06  iTransformerPGIA_abl  2017    4     Full    module_screen_v1_v  29.6574     10.9114     -17.7562    50        483.0    
 2026-06-27 16:15:36  iTransformerPGIA_abl  2017    4     iTrans  module_screen_v1_v  2.2181      1.4712      0.8951      50        481.6    
 2026-06-27 16:24:34  iTransformerPGIA_abl  2017    4     PGIA_o  module_screen_v1_v  1.8315      1.1810      0.9285      50        535.3    
+2026-06-27 17:45:45  iTransformer          2017    4     2       noRevIN             16.5772     13.1337     -4.4855     200       678.0    

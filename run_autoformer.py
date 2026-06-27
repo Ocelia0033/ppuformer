@@ -60,12 +60,21 @@ auto_freq = "h"
 epochs = 300
 batch_size = 32
 learning_rate = 0.000190
+seed = 35040
 train_ratio = 0.8
 
 results_dir = "results"
 loss_plot_ylim = (0, 20)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+import random
+random.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)
+torch.backends.cudnn.benchmark = False
+torch.backends.cudnn.deterministic = True
 
 
 # ========================== 工具函数 ==========================
