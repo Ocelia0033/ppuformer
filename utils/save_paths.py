@@ -59,7 +59,10 @@ def create_save_paths(
         "all_csv":         p("ALL.csv"),
         "all_scatter_png": p("ALL-scatter.png"),
         "all_error_png":   p("ALL-error.png"),
-        "predictions_csv": p("predictions.csv"),
+        "predictions_csv":           p("predictions.csv"),
+        "prediction_curve_png":      p("prediction_curve.png"),
+        "prediction_curve_168h_png": p("prediction_curve_168h.png"),
+        "prediction_curve_168h_csv": p("prediction_curve_168h.csv"),
 
         "best_part_csv": p("Best-Part.csv"),
         "best_part_png": p("Best-Part.png"),

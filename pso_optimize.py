@@ -457,15 +457,22 @@ def final_train_and_save(best_params, fitness_history):
     metrics["total_params"] = int(total_params)
 
     pso_curve_png = os.path.join(paths["save_dir"], "pso_convergence.png")
-    plt.figure(figsize=(10, 6))
-    plt.plot(range(1, len(fitness_history) + 1), fitness_history, "b-o", linewidth=2)
-    plt.xlabel("PSO Iteration")
-    plt.ylabel("Best RMSE")
-    plt.title("PSO Convergence Curve")
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig(pso_curve_png, dpi=150)
-    plt.close()
+    import matplotlib.ticker as mticker
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(range(1, len(fitness_history) + 1), fitness_history, "b-o", linewidth=2)
+    ax.set_xlabel("PSO Iteration")
+    ax.set_ylabel("Best RMSE")
+    ax.set_title("PSO Convergence Curve")
+    ax.set_yscale("linear")
+    try:
+        ax.ticklabel_format(style="plain", axis="y")
+    except Exception:
+        pass
+    ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.4f"))
+    ax.grid(True)
+    fig.tight_layout()
+    fig.savefig(pso_curve_png, dpi=150)
+    plt.close(fig)
 
     pso_log_path = os.path.join(paths["save_dir"], "pso_run.log")
     with open(pso_log_path, "w", encoding="utf-8") as f:

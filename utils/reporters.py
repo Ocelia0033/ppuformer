@@ -7,29 +7,32 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 
 # ----------------------------------------------------------------------
+# 画图通用工具
+# ----------------------------------------------------------------------
+#
+# 全局约束（与论文图风格一致）：
+#   1. 所有 loss / metric 曲线统一使用线性坐标，不使用 log scale；
+#   2. y 轴显示普通小数（0.01 / 0.1 / 1 / 10 ...），不使用 10^k 这种科学计数法；
+#   3. 调参 / 模块筛查 / PSO 阶段：第二条曲线叫 "Validation"，title 含 "Validation"；
+#      最终测试阶段：第二条曲线叫 "Test"，title 含 "Test"；
+#   4. 若前几轮 loss 特别大导致后段看不清，**不要**改成 log，
+#      而是再另存一张从 skip_epochs（默认 10）开始截取的局部图。
 # ----------------------------------------------------------------------
 
 
-def _loss_zoom_ylim(
-    train_vals: Sequence[float],
-    test_vals: Sequence[float],
-    skip_epochs: int = 5,
-) -> tuple[float, float]:
-    """跳过前几轮 loss 爆炸区，按后续数值自动定 zoom 纵轴，便于看波动。"""
-    n = len(train_vals)
-    start = min(skip_epochs, max(0, n - 2))
-    vals = [float(v) for v in list(train_vals[start:]) + list(test_vals[start:]) if v is not None]
-    if not vals:
-        return (0.0, 1.0)
-    lo, hi = min(vals), max(vals)
-    if hi <= lo:
-        hi = lo + max(abs(lo) * 0.1, 1e-8)
-    pad = (hi - lo) * 0.12
-    return (max(0.0, lo - pad), hi + pad)
+def _apply_linear_y_axis(ax: plt.Axes, fmt: str = "%.4f") -> None:
+    """把 y 轴统一设成线性 + 普通数值显示，禁用科学计数法。"""
+    ax.set_yscale("linear")
+    try:
+        ax.ticklabel_format(style="plain", axis="y")
+    except Exception:
+        pass
+    ax.yaxis.set_major_formatter(mticker.FormatStrFormatter(fmt))
 
 
 def save_curve(
@@ -41,31 +44,81 @@ def save_curve(
     ylabel: str,
     title: str,
     ylim: Optional[tuple] = None,
-    yscale_log: bool = False,
+    series_label: str = "Test",
+    y_fmt: str = "%.4f",
 ) -> None:
+    """
+    单 metric 双曲线图（Train + {Test|Validation}）。
+
+    参数
+    ----
+    series_label : "Test" / "Validation"
+        第二条曲线和 csv 列名的前缀。调参 / 筛查 / PSO 阶段传 "Validation"；
+        最终评估阶段传 "Test"（默认）。
+    y_fmt : str
+        y 轴普通数值格式串，默认 4 位小数。
+    """
+    series_key = series_label.lower()
+
     if csv_path is not None:
         df = pd.DataFrame({
             "epoch": list(epochs),
             f"train_{ylabel.lower()}": list(train_vals),
-            f"test_{ylabel.lower()}":  list(test_vals),
+            f"{series_key}_{ylabel.lower()}":  list(test_vals),
         })
         df.to_csv(csv_path, index=False)
 
-    plt.figure(figsize=(10, 6))
-    plt.plot(epochs, train_vals, label=f"Train {ylabel}")
-    plt.plot(epochs, test_vals,  label=f"Test {ylabel}")
-    plt.xlabel("Epoch")
-    plt.ylabel(ylabel)
-    plt.title(title)
-    if yscale_log:
-        plt.yscale("log")
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(epochs, train_vals, label=f"Train {ylabel}")
+    ax.plot(epochs, test_vals,  label=f"{series_label} {ylabel}")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    _apply_linear_y_axis(ax, fmt=y_fmt)
     if ylim is not None:
-        plt.ylim(*ylim)
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig(png_path, dpi=150)
-    plt.close()
+        ax.set_ylim(*ylim)
+    ax.legend()
+    ax.grid(True)
+    fig.tight_layout()
+    fig.savefig(png_path, dpi=150)
+    plt.close(fig)
+
+
+def save_curve_after_epoch(
+    epochs: Sequence[int],
+    train_vals: Sequence[float],
+    test_vals: Sequence[float],
+    png_path: str,
+    ylabel: str,
+    title: str,
+    skip_epochs: int = 10,
+    series_label: str = "Test",
+    y_fmt: str = "%.4f",
+) -> None:
+    """
+    从第 skip_epochs 个 epoch 开始截取的局部曲线（线性坐标）。
+    用于前几轮 loss 巨大导致整体图看不清时替代 log 坐标。
+    """
+    n = len(epochs)
+    start = min(skip_epochs, max(0, n - 2))
+    e = list(epochs)[start:]
+    t = list(train_vals)[start:]
+    v = list(test_vals)[start:]
+    if not e:
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(e, t, label=f"Train {ylabel}")
+    ax.plot(e, v, label=f"{series_label} {ylabel}")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    _apply_linear_y_axis(ax, fmt=y_fmt)
+    ax.legend()
+    ax.grid(True)
+    fig.tight_layout()
+    fig.savefig(png_path, dpi=150)
+    plt.close(fig)
 
 
 # ----------------------------------------------------------------------
@@ -263,6 +316,66 @@ def save_all(
     plt.close()
 
 
+def save_prediction_curve(
+    png_path: str,
+    all_preds: np.ndarray,
+    all_targets: np.ndarray,
+    zoom_168h_png: Optional[str] = None,
+    zoom_168h_csv: Optional[str] = None,
+    timestamps: Optional[np.ndarray] = None,
+    lookback_len: int = 0,
+) -> None:
+    true_vals = all_targets[:, 0]
+    pred_vals = all_preds[:, 0]
+
+    fig, ax = plt.subplots(figsize=(14, 4), dpi=300)
+    ax.plot(range(len(true_vals)), true_vals, color="#1f77b4", linewidth=0.7, label="True")
+    ax.plot(range(len(pred_vals)), pred_vals, color="#ff7f0e", linewidth=0.7, alpha=0.85, label="Pred")
+    ax.set_xlabel("Test Sample Index")
+    ax.set_ylabel("Active Power")
+    ax.set_title("Prediction Curve on Test Set")
+    ax.legend(loc="upper right", framealpha=0.9)
+    ax.grid(True, linewidth=0.3, alpha=0.5)
+    ax.set_xlim(0, len(true_vals) - 1)
+    fig.tight_layout()
+    fig.savefig(png_path, dpi=300)
+    plt.close(fig)
+
+    if zoom_168h_png is not None and len(true_vals) >= 168:
+        t = true_vals[:168]
+        p_vals = pred_vals[:168]
+
+        if zoom_168h_csv is not None and timestamps is not None:
+            ts_slice = timestamps[lookback_len:lookback_len + 168]
+            df_168 = pd.DataFrame({
+                "datetime": ts_slice,
+                "true": t,
+                "pred": p_vals,
+            })
+            df_168.to_csv(zoom_168h_csv, index=False)
+
+        fig, ax = plt.subplots(figsize=(14, 4.5), dpi=300)
+        hours = np.arange(168)
+        ax.plot(hours, t, color="#1f77b4", linewidth=1.2, label="True",
+                marker="o", markersize=1.5)
+        ax.plot(hours, p_vals, color="#ff7f0e", linewidth=1.2, label="Pred",
+                marker="s", markersize=1.5, alpha=0.85)
+        ax.set_xlabel("Hour")
+        ax.set_ylabel("Active Power")
+        title_ts = ""
+        if timestamps is not None:
+            ts0 = str(timestamps[lookback_len])
+            ts1 = str(timestamps[lookback_len + 167])
+            title_ts = f" ({ts0} ~ {ts1})"
+        ax.set_title(f"Prediction Curve on Test Set (168h){title_ts}")
+        ax.legend(loc="upper right", framealpha=0.9)
+        ax.grid(True, linewidth=0.3, alpha=0.5)
+        ax.set_xlim(0, 167)
+        fig.tight_layout()
+        fig.savefig(zoom_168h_png, dpi=300)
+        plt.close(fig)
+
+
 # ----------------------------------------------------------------------
 # ----------------------------------------------------------------------
 
@@ -276,45 +389,71 @@ def write_full_report(
     test_timestamps: np.ndarray,
     lookback_len: int,
     pred_len: int,
-    loss_ylim: Optional[tuple] = None,
+    loss_ylim: Optional[tuple] = None,  # 已弃用：完整图保持真实全范围，不再裁 y
+    phase: str = "test",
+    skip_epochs_for_zoom: int = 10,
 ) -> dict:
+    """
+    生成完整训练报告（曲线图、CSV、指标）。
+
+    phase : "test" / "val"
+        - "test"（默认）：最终评估阶段，第二条曲线叫 "Test"，标题含 "Test"。
+        - "val"：调参 / 模块筛查 / PSO 阶段，第二条曲线叫 "Validation"，标题含 "Validation"。
+
+    skip_epochs_for_zoom : int
+        前几轮 loss 巨大时另存一张"从第 N 个 epoch 起"的局部图（线性坐标）。
+        默认跳过 10 个 epoch。设为 0 关闭该图。
+
+    loss_ylim : tuple | None
+        旧参数，保留只为向后兼容；新协议下完整 loss 图固定展示真实全范围，
+        不再依赖人工裁切；前几轮 loss 巨大时通过 skip_epochs_for_zoom 另存局部图。
+    """
     epochs = history["epochs"]
+
+    series_label = "Validation" if phase == "val" else "Test"
+    series_lower = series_label.lower()
 
     train_loss = history["train_loss"]
     test_loss = history["test_loss"]
-    use_log = max(train_loss + test_loss) / max(min(train_loss + test_loss), 1e-12) > 50
 
     save_curve(
         epochs, train_loss, test_loss,
         paths["loss_csv"], paths["loss_png"],
-        ylabel="Loss", title="Training and Test Loss Curve",
-        ylim=None, yscale_log=use_log,
+        ylabel="Loss",
+        title=f"Training and {series_label} Loss Curve",
+        ylim=None,
+        series_label=series_label,
     )
-    if "loss_zoom_png" in paths:
-        zoom_ylim = loss_ylim if loss_ylim is not None else _loss_zoom_ylim(train_loss, test_loss)
-        save_curve(
+    # 局部图：从第 N 个 epoch 起截取（线性坐标，**不**用 log），替代原 zoom-y 行为
+    if skip_epochs_for_zoom > 0 and "loss_zoom_png" in paths and len(epochs) > skip_epochs_for_zoom:
+        save_curve_after_epoch(
             epochs, train_loss, test_loss,
-            None, paths["loss_zoom_png"],
+            paths["loss_zoom_png"],
             ylabel="Loss",
-            title=(
-                f"Training and Test Loss Curve (zoom y={zoom_ylim[0]:.4g}-{zoom_ylim[1]:.4g})"
-            ),
-            ylim=zoom_ylim,
+            title=f"Training and {series_label} Loss Curve (from epoch {skip_epochs_for_zoom})",
+            skip_epochs=skip_epochs_for_zoom,
+            series_label=series_label,
         )
     save_curve(
         epochs, history["train_mae"], history["test_mae"],
         paths["mae_csv"], paths["mae_png"],
-        ylabel="MAE", title="Training and Test MAE Curve",
+        ylabel="MAE",
+        title=f"Training and {series_label} MAE Curve",
+        series_label=series_label,
     )
     save_curve(
         epochs, history["train_mse"], history["test_mse"],
         paths["mse_csv"], paths["mse_png"],
-        ylabel="MSE", title="Training and Test MSE Curve",
+        ylabel="MSE",
+        title=f"Training and {series_label} MSE Curve",
+        series_label=series_label,
     )
     save_curve(
         epochs, history["train_r2"], history["test_r2"],
         paths["r2_csv"], paths["r2_png"],
-        ylabel="R²", title="Training and Test R² Curve",
+        ylabel="R²",
+        title=f"Training and {series_label} R² Curve",
+        series_label=series_label,
     )
 
     preds_flat = all_preds.flatten()
@@ -334,6 +473,16 @@ def write_full_report(
         all_preds, all_targets, pred_len, test_timestamps, lookback_len,
         predictions_csv=paths.get("predictions_csv"),
     )
+
+    if "prediction_curve_png" in paths:
+        save_prediction_curve(
+            paths["prediction_curve_png"],
+            all_preds, all_targets,
+            zoom_168h_png=paths.get("prediction_curve_168h_png"),
+            zoom_168h_csv=paths.get("prediction_curve_168h_csv"),
+            timestamps=test_timestamps,
+            lookback_len=lookback_len,
+        )
 
     if pred_len == 1:
         save_best_part(
