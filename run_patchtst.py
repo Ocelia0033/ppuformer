@@ -282,13 +282,15 @@ def main():
 
         test_loss, test_mse, test_mae, test_r2, _, _ = evaluate(
             model, test_loader, criterion, target_min, target_max, target_idx)
+        train_eval_loss, train_mse, train_mae, train_r2, _, _ = evaluate(
+            model, train_eval_loader, criterion, target_min, target_max, target_idx)
 
         history["epochs"].append(epoch)
         history["train_loss"].append(train_loss)
         history["test_loss"].append(test_loss)
-        history["train_mae"].append(test_mae); history["test_mae"].append(test_mae)
-        history["train_mse"].append(test_mse); history["test_mse"].append(test_mse)
-        history["train_r2"].append(test_r2);   history["test_r2"].append(test_r2)
+        history["train_mae"].append(train_mae); history["test_mae"].append(test_mae)
+        history["train_mse"].append(train_mse); history["test_mse"].append(test_mse)
+        history["train_r2"].append(train_r2);   history["test_r2"].append(test_r2)
 
         print(
             f"Epoch [{epoch:3d}/{epochs}]  "

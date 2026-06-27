@@ -12,11 +12,13 @@ class DSCLocalBranch(nn.Module):
     --------------------------------------------------------------------------------
       D_k    = GELU(DWConv^(k)(X^(2)T))         k ∈ K_dsc = {3,5,7}
       D      = [D_3, D_5, D_7]
-      Y_dsc  = X^(2)T + Dropout(PWConv(D))
-      X^(3)  = X^(2) + γ_dsc (Y_dsc^T - X^(2))
+      residual = LayerNorm(PWConv(D)^T)
+      X^(3)  = X^(2) + γ_eff * residual
+      γ_eff  = γ_bound * tanh(γ_raw)
 
-    PPU：PWConv 的权重与偏置整层零初始化（论文 2.2.3 末尾），γ_dsc 零初始化，
-    从而初始时 Y_dsc = X^(2)T，X^(3) = X^(2)。
+    PPU：γ_raw 严格零初始化 → 初始 out = X^(2)；
+    PWConv 极小随机初始化 → γ 在 step0 即可获得梯度；
+    LayerNorm + tanh-bound γ 防止 residual 爆炸。
     """
 
     def __init__(self, num_variates: int, kernels=(3, 5, 7), dropout: float = 0.0,
@@ -25,6 +27,7 @@ class DSCLocalBranch(nn.Module):
         self.num_variates = num_variates
         self.kernels = tuple(kernels)
         self.use_ppu = use_ppu
+        self.gamma_bound = 0.1
 
         self.dw_convs = nn.ModuleList([
             nn.Conv1d(
@@ -43,15 +46,14 @@ class DSCLocalBranch(nn.Module):
             out_channels=num_variates,
             kernel_size=1,
         )
-        # 论文：PWConv 权重与偏置整层零初始化
-        nn.init.zeros_(self.pw.weight)
+        nn.init.normal_(self.pw.weight, mean=0.0, std=1e-3)
         nn.init.zeros_(self.pw.bias)
 
+        self.res_norm = nn.LayerNorm(num_variates)
         self.dropout = nn.Dropout(dropout)
 
         if use_ppu:
-            # 0.01 而非严格 0：避免 γ=0 + pw=0 导致梯度死锁（纯数值工程问题，不影响 PPU 精神）
-            self.gamma = nn.Parameter(torch.full((1,), 0.01))
+            self.gamma = nn.Parameter(torch.zeros(1))
         else:
             self.register_buffer("gamma", torch.ones(1))
 
@@ -65,8 +67,14 @@ class DSCLocalBranch(nn.Module):
         feats = [self.act(conv(x)) for conv in self.dw_convs]
         d_cat = torch.cat(feats, dim=1)                      # [B, kN, L]
 
-        y_dsc = x + self.dropout(self.pw(d_cat))             # [B, N, L]
-        y_dsc_btn = y_dsc.transpose(1, 2)                    # [B, L, N]
+        residual = self.pw(d_cat).transpose(1, 2)            # [B, L, N]
+        residual = self.res_norm(residual)
+        residual = self.dropout(residual)
 
-        out = x_btn + self.gamma * (y_dsc_btn - x_btn)
+        if self.use_ppu:
+            gamma_eff = self.gamma_bound * torch.tanh(self.gamma)
+        else:
+            gamma_eff = self.gamma
+
+        out = x_btn + gamma_eff * residual
         return out

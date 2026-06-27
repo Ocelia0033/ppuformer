@@ -20,7 +20,7 @@ from data_provider.split_utils import strict_chronological_split
 
 # ---------- 实验身份（影响保存路径） ----------
 model_name = "iTransformer"   # 第1级目录名。换模型时改这个
-des = "noRevIN"               # 实验描述，仅写入 args.json 用于区分（baseline / ablation_xx / tune1 ...）
+des = "baseline"              # 实验描述，仅写入 args.json 用于区分（baseline / ablation_xx / tune1 ...）
 
 # ---------- 数据集 ----------
 dataset_name = "pv2017"       # dataset/ 下的 csv 文件名（不含 .csv）。pv2017 / pv2018 / pv2019
@@ -34,7 +34,7 @@ num_variates = 5              # 输入特征数（CSV 里第 2-6 列共 5 个）
 # ---------- 模型超参 ----------
 dim = 128                     # 隐藏维度
 depth = 5                     # transformer 层数
-heads = 1                     # 注意力头数
+heads = 2                     # 注意力头数
 dim_head = 32                 # 每个 head 的维度
 
 # ---------- 训练超参 ----------
@@ -42,9 +42,9 @@ dim_head = 32                 # 每个 head 的维度
 # 历史所有 R²≈0.95 的成功跑分（train1/4/5）都是 batch=32 拿到的；
 # 改成 128 会导致每个 epoch 的梯度步数只有 ~62 次（vs 246 次），训不出来。
 # 这是 iTransformer 的官方推荐配置（原论文 / TSlib scripts 在 ETT 类数据集都用 batch=16~32）。
-epochs = 200
-batch_size = 128
-learning_rate = 0.001
+epochs = 100
+batch_size = 64
+learning_rate = 0.000190
 
 # ---------- 随机种子 ----------
 seed = 35040                  # 固定种子，保证可复现
@@ -210,7 +210,7 @@ def main():
         dim_head=dim_head,
         pred_length=pred_len,
         num_tokens_per_variate=1,
-        use_reversible_instance_norm=False,
+        use_reversible_instance_norm=True,
         flash_attn=True,
     ).to(device)
 

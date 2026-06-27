@@ -33,11 +33,11 @@ num_variates = 17             # pv2017_ext 有 17 列特征
 target_idx = 4                # features[:, 4] = Active_Power
 
 # ---------- 模块开关（改 True/False 就行）----------
-use_psg  = False              # Physics State Gate
-use_wase = False              # Weather Aware Spectral Enhancement
+use_psg  = True               # Physics State Gate
+use_wase = True              # Weather Aware Spectral Enhancement
 use_dsc  = False              # Depthwise Separable Conv
-use_pgia = True               # Physics Guided Instance-Aware
-use_ppu  = True               # Progressive Physical Unlocking（γ 从 0 起步）
+use_pgia = True              # Physics Guided Instance-Aware
+use_ppu  = True              # Progressive Physical Unlocking（γ 从 0 起步）
 use_revin = True              # RevIN 可逆实例归一化
 
 # ---------- 模型超参 ----------
@@ -49,7 +49,7 @@ dim_head = 32
 # ---------- 训练超参 ----------
 epochs = 50
 batch_size = 32
-learning_rate = 1.9e-4
+learning_rate = 0.000190
 weight_decay = 0.0
 gate_lr_mult = 5              # γ 门参数的学习率倍率
 
@@ -253,18 +253,33 @@ def main():
     print(f"Model parameters: {total_params:,}")
     print("-" * 60)
 
-    gate_params, other_params = [], []
+    dsc_params, dsc_gamma_params, gate_params, other_params = [], [], [], []
     for name, p in model.named_parameters():
         if not p.requires_grad:
             continue
-        if p.numel() == 1 and "gamma" in name:
+        if "dsc." in name:
+            if "gamma" in name:
+                dsc_gamma_params.append(p)
+            else:
+                dsc_params.append(p)
+        elif p.numel() == 1 and "gamma" in name:
             gate_params.append(p)
         else:
             other_params.append(p)
-    optimizer = torch.optim.AdamW([
+
+    param_groups = [
         {"params": other_params, "lr": learning_rate, "weight_decay": weight_decay},
-        {"params": gate_params,  "lr": learning_rate * gate_lr_mult, "weight_decay": 0.0},
-    ])
+        {"params": gate_params, "lr": learning_rate * gate_lr_mult, "weight_decay": 0.0},
+    ]
+    if dsc_params:
+        param_groups.append(
+            {"params": dsc_params, "lr": learning_rate * 0.5, "weight_decay": weight_decay},
+        )
+    if dsc_gamma_params:
+        param_groups.append(
+            {"params": dsc_gamma_params, "lr": learning_rate * 1.0, "weight_decay": 0.0},
+        )
+    optimizer = torch.optim.AdamW(param_groups)
     criterion = nn.MSELoss()
 
     paths = create_save_paths(
