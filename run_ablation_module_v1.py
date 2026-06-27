@@ -49,7 +49,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 from model.iTransformer_PGIA import iTransformerPGIA
 from data_provider.split_utils import strict_chronological_split
-from utils.reporters import write_full_report
+from utils.reporters import write_full_report, save_raw_target_curve_168h
 from utils.run_log import append_run_summary
 
 
@@ -106,6 +106,10 @@ ABLATIONS: List[Dict] = [
     {"name": "PGIA_only",       "use_psg": False, "use_wase": False, "use_dsc": False, "use_pgia": True},
     {"name": "Full",            "use_psg": True,  "use_wase": True,  "use_dsc": True,  "use_pgia": True},
 ]
+
+# 仅跑列表内组名（用于审计/快速回归测试）；None = 跑全部 6 组
+RUN_ONLY_NAMES = ["iTransformer-17", "PGIA_only"]   # ← audit 验证阶段
+# RUN_ONLY_NAMES = None   # ← 正式跑全部 6 组时改回 None
 
 
 # ========================== 工具：seed、DataLoader ==========================
@@ -619,23 +623,21 @@ def run_one_group(cfg: Dict, splits: dict, group_dir: str,
         val_eval = evaluate(model, val_loader, criterion,
                             splits["target_min"], splits["target_max"])
 
-        # 训练集指标只在首末和每 25 epoch 全量评估一次，省时间
-        if epoch == 1 or epoch == EPOCHS or epoch % 25 == 0:
-            tr_eval = evaluate(model, train_eval_loader, criterion,
-                               splits["target_min"], splits["target_max"])
-            train_mse, train_mae, train_r2 = tr_eval["mse"], tr_eval["mae"], tr_eval["r2"]
-        else:
-            train_mse, train_mae, train_r2 = 0.0, 0.0, 0.0
+        # ★ 协议统一：MAE / RMSE / R² **每个 epoch** 都在「反归一化后的原始 AP 空间」
+        #   上计算 train 与 val，二者尺度严格一致；只有 loss（MSE）保留在归一化空间。
+        #   修复了上一版「train_mae 在 epoch 2 之后被 0.0 占位」导致的图表误导。
+        tr_eval = evaluate(model, train_eval_loader, criterion,
+                           splits["target_min"], splits["target_max"])
 
         history["epochs"].append(epoch)
-        history["train_loss"].append(train_loss)
-        history["test_loss"].append(val_eval["loss"])
-        history["train_mae"].append(train_mae)
-        history["test_mae"].append(val_eval["mae"])
-        history["train_mse"].append(train_mse)
-        history["test_mse"].append(val_eval["mse"])
-        history["train_r2"].append(train_r2)
-        history["test_r2"].append(val_eval["r2"])
+        history["train_loss"].append(train_loss)            # 归一化空间 MSE
+        history["test_loss"].append(val_eval["loss"])       # 归一化空间 MSE
+        history["train_mae"].append(tr_eval["mae"])         # 反归一化空间
+        history["test_mae"].append(val_eval["mae"])         # 反归一化空间
+        history["train_mse"].append(tr_eval["mse"])         # 反归一化空间
+        history["test_mse"].append(val_eval["mse"])         # 反归一化空间
+        history["train_r2"].append(tr_eval["r2"])           # 反归一化空间
+        history["test_r2"].append(val_eval["r2"])           # 反归一化空间
 
         val_rmse_hist.append(val_eval["rmse"])
 
@@ -681,9 +683,14 @@ def run_one_group(cfg: Dict, splits: dict, group_dir: str,
         "prediction_curve_168h_csv": os.path.join(group_dir, "prediction_curve_168h.csv"),
         "best_part_csv": os.path.join(group_dir, "Best-Part.csv"),
         "best_part_png": os.path.join(group_dir, "Best-Part.png"),
+
+        # raw sanity：与模型无关，每组目录里都写一份，方便单独审计
+        "raw_val_curve_168h_png": os.path.join(group_dir, "raw_validation_AP_168h.png"),
+        "raw_val_curve_168h_csv": os.path.join(group_dir, "raw_validation_AP_168h.csv"),
     }
     # write_full_report 期望 all_preds=[N,H]、all_targets=[N,H]
     # best 中存的是反归一化后的 [N_val, pred_len] 数组
+    # phase="val" → 所有图标题、CSV 列名都自动带 "Validation"
     write_full_report(
         paths=paths,
         history=history,
@@ -693,7 +700,7 @@ def run_one_group(cfg: Dict, splits: dict, group_dir: str,
         test_timestamps=splits["val_timestamps"],
         lookback_len=LOOKBACK_LEN,
         pred_len=PRED_LEN,
-        phase="val",                  # ★ 让图标题与 csv 列名都显示 "Validation"
+        phase="val",
         skip_epochs_for_zoom=10,
     )
 
@@ -802,16 +809,41 @@ def main():
     os.makedirs(exp_dir, exist_ok=True)
     print(f"Experiment dir: {exp_dir}")
 
+    # ---------- Raw sanity：与模型无关，先把 raw validation AP 的 168h 曲线 ----------
+    #             夜间 PV 真值应当 ≈ 0；若 raw 曲线本身夜间出现峰，
+    #             说明 dataset 时间戳 / target 列 / 预处理本身有 bug，必须先修数据。
+    raw_png = os.path.join(exp_dir, "raw_validation_AP_168h.png")
+    raw_csv = os.path.join(exp_dir, "raw_validation_AP_168h.csv")
+    save_raw_target_curve_168h(
+        png_path=raw_png,
+        csv_path=raw_csv,
+        raw_target=splits["raw_val_target"],
+        timestamps=splits["val_timestamps"],
+        lookback_len=LOOKBACK_LEN,
+        phase="val",
+        series_name="Active Power",
+    )
+    print(f"[Raw sanity] 已生成: {raw_png}  /  {raw_csv}")
+    print(f"             请先打开 PNG 查看夜间是否 ≈ 0；若否，先查 dataset/timestamp/target，再谈模型。")
+
     # ---------- Step 1: 构造 anchors（共享初始权重池） ----------
     anchors = build_anchors()
 
     # ---------- Step 2: 模块关闭确实不参与 forward 的 sanity check ----------
     sanity_check_forward_paths(splits, anchors)
 
-    # ---------- Step 3: 6 组实验 ----------
+    # ---------- Step 3: 跑实验（按 RUN_ONLY_NAMES 过滤） ----------
+    if RUN_ONLY_NAMES is not None:
+        running = [c for c in ABLATIONS if c["name"] in RUN_ONLY_NAMES]
+        print(f"\n[Filter] RUN_ONLY_NAMES={RUN_ONLY_NAMES} → 只跑 {len(running)} 组: "
+              f"{[c['name'] for c in running]}")
+    else:
+        running = ABLATIONS
+        print(f"\n[Filter] 跑全部 {len(running)} 组")
+
     summary_rows: List[Dict] = []
     all_init_hashes: List[Dict] = []
-    for cfg in ABLATIONS:
+    for cfg in running:
         group_dir = os.path.join(exp_dir, cfg["name"])
         result = run_one_group(cfg, splits, group_dir, anchors)
         all_init_hashes.append({
@@ -906,28 +938,38 @@ def main():
               f"{'✓ 一致' if len(hs) == 1 else '✗ 不一致'}  ({hs})")
 
     # ----- 模块效果分析 -----
-    base = next(r for r in summary_rows if r["name"] == "iTransformer-17")
-    full = next(r for r in summary_rows if r["name"] == "Full")
+    def _get_by_name(name):
+        for r in summary_rows:
+            if r["name"] == name:
+                return r
+        return None
+
+    base = _get_by_name("iTransformer-17")
+    full = _get_by_name("Full")
 
     def delta(a, b):
         return a - b
 
-    print()
-    print("[Full vs iTransformer-17]")
-    print(f"  ΔRMSE = {delta(full['val_rmse'], base['val_rmse']):+.4f}   "
-          f"ΔMAE = {delta(full['val_mae'], base['val_mae']):+.4f}   "
-          f"ΔR²  = {delta(full['val_r2'], base['val_r2']):+.4f}")
-    print(f"  结论: {'Full 优于 baseline' if full['val_rmse'] < base['val_rmse'] else 'Full 未优于 baseline'}"
-          f"  (按 val RMSE 比较)")
+    if base is not None and full is not None:
+        print()
+        print("[Full vs iTransformer-17]")
+        print(f"  ΔRMSE = {delta(full['val_rmse'], base['val_rmse']):+.4f}   "
+              f"ΔMAE = {delta(full['val_mae'], base['val_mae']):+.4f}   "
+              f"ΔR²  = {delta(full['val_r2'], base['val_r2']):+.4f}")
+        print(f"  结论: {'Full 优于 baseline' if full['val_rmse'] < base['val_rmse'] else 'Full 未优于 baseline'}"
+              f"  (按 val RMSE 比较)")
 
-    print()
-    print("[单模块 vs iTransformer-17]")
-    for name in ["PSG_only", "WASE_only", "DSC_only", "PGIA_only"]:
-        r = next(x for x in summary_rows if x["name"] == name)
-        d = delta(r["val_rmse"], base["val_rmse"])
-        tag = "+ 有效"   if d < -1e-4 else ("× 拖后腿" if d > 1e-4 else "~ 无明显差异")
-        print(f"  {name:<10}  ΔRMSE={d:+.4f}  ΔMAE={delta(r['val_mae'], base['val_mae']):+.4f}  "
-              f"ΔR²={delta(r['val_r2'], base['val_r2']):+.4f}    [{tag}]")
+    if base is not None:
+        print()
+        print("[单模块 vs iTransformer-17]")
+        for name in ["PSG_only", "WASE_only", "DSC_only", "PGIA_only"]:
+            r = _get_by_name(name)
+            if r is None:
+                continue
+            d = delta(r["val_rmse"], base["val_rmse"])
+            tag = "+ 有效"   if d < -1e-4 else ("× 拖后腿" if d > 1e-4 else "~ 无明显差异")
+            print(f"  {name:<10}  ΔRMSE={d:+.4f}  ΔMAE={delta(r['val_mae'], base['val_mae']):+.4f}  "
+                  f"ΔR²={delta(r['val_r2'], base['val_r2']):+.4f}    [{tag}]")
 
     print()
     print(f"Summary CSV: {summary_csv}")

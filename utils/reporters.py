@@ -343,16 +343,33 @@ def save_prediction_curve(
     zoom_168h_csv: Optional[str] = None,
     timestamps: Optional[np.ndarray] = None,
     lookback_len: int = 0,
+    phase: str = "test",
 ) -> None:
+    """
+    画 **step-1 rolling prediction** 曲线（在 pred_len>1 时只取每个滑窗的第 1 步）。
+
+    phase : "test" / "val"
+        - "test"：标题 "Test Step-1 Rolling Prediction Curve"
+        - "val" ：标题 "Validation Step-1 Rolling Prediction Curve"
+
+    168h zoom 图：
+        - x 轴使用 **真实 datetime**（不再是 Hour=0~167，避免误判晚上有白天峰），
+          每 24h 一个主刻度，并把日期标在刻度上；
+        - 同时输出 CSV：datetime / hour_of_day / true / pred / is_daytime。
+          is_daytime 由 true>0（夜间 PV 实际接近 0） 与 6<=hour<=18 双重判定，
+          任一为 True 即视作白天，便于排查"夜间应为 0 却有峰"的目标列对齐错误。
+    """
+    series_label = "Validation" if phase == "val" else "Test"
+
     true_vals = all_targets[:, 0]
     pred_vals = all_preds[:, 0]
 
     fig, ax = plt.subplots(figsize=(14, 4), dpi=300)
     ax.plot(range(len(true_vals)), true_vals, color="#1f77b4", linewidth=0.7, label="True")
     ax.plot(range(len(pred_vals)), pred_vals, color="#ff7f0e", linewidth=0.7, alpha=0.85, label="Pred")
-    ax.set_xlabel("Test Sample Index")
+    ax.set_xlabel(f"{series_label} Sample Index")
     ax.set_ylabel("Active Power")
-    ax.set_title("Prediction Curve on Test Set")
+    ax.set_title(f"{series_label} Step-1 Rolling Prediction Curve")
     ax.legend(loc="upper right", framealpha=0.9)
     ax.grid(True, linewidth=0.3, alpha=0.5)
     ax.set_xlim(0, len(true_vals) - 1)
@@ -364,35 +381,144 @@ def save_prediction_curve(
         t = true_vals[:168]
         p_vals = pred_vals[:168]
 
-        if zoom_168h_csv is not None and timestamps is not None:
+        ts_dt_168 = None
+        hour_of_day = None
+        if timestamps is not None and len(timestamps) >= lookback_len + 168:
             ts_slice = timestamps[lookback_len:lookback_len + 168]
+            try:
+                ts_dt_168 = pd.to_datetime(ts_slice)
+                hour_of_day = ts_dt_168.hour.to_numpy()
+            except Exception:
+                ts_dt_168 = None
+                hour_of_day = None
+
+        if zoom_168h_csv is not None and ts_dt_168 is not None:
+            # is_daytime：白天双重判定（实际 AP>0 或 hour∈[6,18]），任一为 True 即视作白天
+            is_day_by_value = t > 0
+            is_day_by_hour = (hour_of_day >= 6) & (hour_of_day <= 18)
+            is_daytime = (is_day_by_value | is_day_by_hour).astype(int)
+
             df_168 = pd.DataFrame({
-                "datetime": ts_slice,
-                "true": t,
-                "pred": p_vals,
+                "datetime":    ts_dt_168.astype(str),
+                "hour_of_day": hour_of_day,
+                "true":        t,
+                "pred":        p_vals,
+                "is_daytime":  is_daytime,
             })
             df_168.to_csv(zoom_168h_csv, index=False)
 
         fig, ax = plt.subplots(figsize=(14, 4.5), dpi=300)
-        hours = np.arange(168)
-        ax.plot(hours, t, color="#1f77b4", linewidth=1.2, label="True",
-                marker="o", markersize=1.5)
-        ax.plot(hours, p_vals, color="#ff7f0e", linewidth=1.2, label="Pred",
-                marker="s", markersize=1.5, alpha=0.85)
-        ax.set_xlabel("Hour")
+        if ts_dt_168 is not None:
+            import matplotlib.dates as mdates
+            x_dt = ts_dt_168.to_pydatetime()
+            ax.plot(x_dt, t, color="#1f77b4", linewidth=1.2, label="True",
+                    marker="o", markersize=1.5)
+            ax.plot(x_dt, p_vals, color="#ff7f0e", linewidth=1.2, label="Pred",
+                    marker="s", markersize=1.5, alpha=0.85)
+            # 每 24h 一个主刻度 + 每 6h 一个次刻度，日期+小时显示
+            ax.xaxis.set_major_locator(mdates.HourLocator(interval=24))
+            ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d\n%H:%M"))
+            ax.xaxis.set_minor_locator(mdates.HourLocator(interval=6))
+            ax.set_xlabel("Datetime")
+            ax.set_xlim(x_dt[0], x_dt[-1])
+        else:
+            hours = np.arange(168)
+            ax.plot(hours, t, color="#1f77b4", linewidth=1.2, label="True",
+                    marker="o", markersize=1.5)
+            ax.plot(hours, p_vals, color="#ff7f0e", linewidth=1.2, label="Pred",
+                    marker="s", markersize=1.5, alpha=0.85)
+            ax.set_xlabel("Hour (from validation start)")
+            ax.set_xlim(0, 167)
+
         ax.set_ylabel("Active Power")
         title_ts = ""
-        if timestamps is not None:
-            ts0 = str(timestamps[lookback_len])
-            ts1 = str(timestamps[lookback_len + 167])
+        if ts_dt_168 is not None:
+            ts0 = str(ts_dt_168[0])
+            ts1 = str(ts_dt_168[-1])
             title_ts = f" ({ts0} ~ {ts1})"
-        ax.set_title(f"Prediction Curve on Test Set (168h){title_ts}")
+        ax.set_title(f"{series_label} Step-1 Rolling Prediction Curve (168h){title_ts}")
         ax.legend(loc="upper right", framealpha=0.9)
         ax.grid(True, linewidth=0.3, alpha=0.5)
-        ax.set_xlim(0, 167)
         fig.tight_layout()
         fig.savefig(zoom_168h_png, dpi=300)
         plt.close(fig)
+
+
+def save_raw_target_curve_168h(
+    png_path: str,
+    csv_path: str,
+    raw_target: np.ndarray,
+    timestamps: np.ndarray,
+    lookback_len: int = 0,
+    phase: str = "val",
+    series_name: str = "Active Power",
+) -> None:
+    """
+    画 validation/test 集**反归一化原始目标列**前 168 小时曲线（**与任何模型无关**）。
+
+    用途：sanity check —— 夜间 PV 应当 ≈ 0；若 raw 曲线本身夜间出现峰，
+    说明 dataset 时间戳 / target 列 / 预处理有 bug，需先修数据本身。
+
+    输出
+    ----
+    png_path : 真 datetime x 轴的 168h 曲线
+    csv_path : datetime / hour_of_day / true / is_daytime
+    """
+    series_label = "Validation" if phase == "val" else "Test"
+
+    if len(raw_target) < 168:
+        return
+    t = np.asarray(raw_target[:168])
+
+    ts_slice = timestamps[lookback_len:lookback_len + 168] \
+        if len(timestamps) >= lookback_len + 168 else timestamps[:168]
+    try:
+        ts_dt = pd.to_datetime(ts_slice)
+    except Exception:
+        ts_dt = None
+
+    if ts_dt is not None:
+        hour_of_day = ts_dt.hour.to_numpy()
+        is_day_by_value = t > 0
+        is_day_by_hour = (hour_of_day >= 6) & (hour_of_day <= 18)
+        is_daytime = (is_day_by_value | is_day_by_hour).astype(int)
+
+        pd.DataFrame({
+            "datetime":    ts_dt.astype(str),
+            "hour_of_day": hour_of_day,
+            "true":        t,
+            "is_daytime":  is_daytime,
+        }).to_csv(csv_path, index=False)
+    else:
+        pd.DataFrame({"true": t}).to_csv(csv_path, index=False)
+
+    fig, ax = plt.subplots(figsize=(14, 4.5), dpi=300)
+    if ts_dt is not None:
+        import matplotlib.dates as mdates
+        x_dt = ts_dt.to_pydatetime()
+        ax.plot(x_dt, t, color="#1f77b4", linewidth=1.2, marker="o", markersize=1.8,
+                label=f"Raw {series_name} (no model)")
+        ax.xaxis.set_major_locator(mdates.HourLocator(interval=24))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d\n%H:%M"))
+        ax.xaxis.set_minor_locator(mdates.HourLocator(interval=6))
+        ax.set_xlabel("Datetime")
+        ax.set_xlim(x_dt[0], x_dt[-1])
+        title_ts = f" ({ts_dt[0]} ~ {ts_dt[-1]})"
+    else:
+        ax.plot(np.arange(len(t)), t, color="#1f77b4", linewidth=1.2,
+                marker="o", markersize=1.8, label=f"Raw {series_name}")
+        ax.set_xlabel("Hour (from validation start)")
+        ax.set_xlim(0, len(t) - 1)
+        title_ts = ""
+
+    ax.set_ylabel(series_name)
+    ax.set_title(f"Raw {series_label} {series_name} (first 168h){title_ts}  (raw data, no model)")
+    ax.legend(loc="upper right", framealpha=0.9)
+    ax.grid(True, linewidth=0.3, alpha=0.5)
+    _apply_linear_y_axis(ax)
+    fig.tight_layout()
+    fig.savefig(png_path, dpi=300)
+    plt.close(fig)
 
 
 # ----------------------------------------------------------------------
@@ -509,6 +635,18 @@ def write_full_report(
             zoom_168h_csv=paths.get("prediction_curve_168h_csv"),
             timestamps=test_timestamps,
             lookback_len=lookback_len,
+            phase=phase,
+        )
+
+    # raw sanity 图：仅在调用方提供路径时画一次（与模型无关，可全实验复用一份）
+    if "raw_val_curve_168h_png" in paths and "raw_val_curve_168h_csv" in paths:
+        save_raw_target_curve_168h(
+            png_path=paths["raw_val_curve_168h_png"],
+            csv_path=paths["raw_val_curve_168h_csv"],
+            raw_target=raw_test_target,
+            timestamps=test_timestamps,
+            lookback_len=lookback_len,
+            phase=phase,
         )
 
     if pred_len == 1:
