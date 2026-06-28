@@ -11,6 +11,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 from model.iTransformer_PGIA import iTransformerPGIA
 from utils import create_save_paths, save_args_json, write_full_report, append_run_summary
+from utils.reporters import save_batch_loss
 from data_provider.split_utils import strict_chronological_split
 
 
@@ -51,7 +52,12 @@ epochs = 50
 batch_size = 32
 learning_rate = 0.000190
 weight_decay = 0.0
-gate_lr_mult = 5              # γ 门参数的学习率倍率
+gate_lr_mult = 5              # PSG/WASE γ 门参数学习率倍率
+
+# ---------- DSC 弱接入 ----------
+dsc_gamma_bound = 0.03        # γ 上界（channel_gate + 弱 gamma）
+dsc_lr_mult = 0.2               # DSC 非 gamma 参数 lr 倍率
+dsc_gamma_lr_mult = 0.5         # DSC gamma 参数 lr 倍率
 
 # ---------- 随机种子 ----------
 seed = 35040                  # 固定种子，保证可复现
@@ -62,6 +68,7 @@ train_ratio = 0.8
 # ---------- 输出 ----------
 results_dir = "results"
 loss_plot_ylim = None
+save_batch_loss_epochs = 0          # 保存前 N 个 epoch 的 batch 级 loss（0=关闭）
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -142,9 +149,10 @@ def create_dataloaders(features, timestamps):
 # ========================== 训练与评估 ==========================
 
 
-def train_one_epoch(model, train_loader, optimizer, criterion):
+def train_one_epoch(model, train_loader, optimizer, criterion, return_batch_losses=False):
     model.train()
     total_loss = 0.0
+    batch_losses = [] if return_batch_losses else None
     for x, y in train_loader:
         x, y = x.to(device), y.to(device)
         optimizer.zero_grad()
@@ -153,8 +161,14 @@ def train_one_epoch(model, train_loader, optimizer, criterion):
         loss = criterion(pred_ap, y)
         loss.backward()
         optimizer.step()
-        total_loss += loss.item()
-    return total_loss / len(train_loader)
+        val = loss.item()
+        total_loss += val
+        if return_batch_losses:
+            batch_losses.append(val)
+    avg = total_loss / len(train_loader)
+    if return_batch_losses:
+        return avg, batch_losses
+    return avg
 
 
 def evaluate(model, loader, criterion, t_min, t_max):
@@ -185,7 +199,34 @@ def evaluate(model, loader, criterion, t_min, t_max):
     return avg_loss, mse, mae, r2, preds_orig, targets_orig
 
 
-# ========================== 主流程 ==========================
+def build_optimizer(model):
+    dsc_params, dsc_gamma_params, gate_params, other_params = [], [], [], []
+    for name, p in model.named_parameters():
+        if not p.requires_grad:
+            continue
+        if "dsc." in name:
+            if name.endswith("gamma") or name == "dsc.gamma":
+                dsc_gamma_params.append(p)
+            else:
+                dsc_params.append(p)
+        elif p.numel() == 1 and "gamma" in name:
+            gate_params.append(p)
+        else:
+            other_params.append(p)
+
+    param_groups = [
+        {"params": other_params, "lr": learning_rate, "weight_decay": weight_decay},
+        {"params": gate_params, "lr": learning_rate * gate_lr_mult, "weight_decay": 0.0},
+    ]
+    if dsc_params:
+        param_groups.append(
+            {"params": dsc_params, "lr": learning_rate * dsc_lr_mult, "weight_decay": weight_decay},
+        )
+    if dsc_gamma_params:
+        param_groups.append(
+            {"params": dsc_gamma_params, "lr": learning_rate * dsc_gamma_lr_mult, "weight_decay": 0.0},
+        )
+    return torch.optim.AdamW(param_groups)
 
 
 def main():
@@ -222,6 +263,7 @@ def main():
     print(f"RevIN: {use_revin}  |  PPU: {use_ppu}")
     print(f"Lookback: {lookback_len}, Pred length: {pred_len}")
     print(f"Epochs: {epochs}, Batch: {batch_size}, LR: {learning_rate}")
+    print(f"DSC gamma_bound={dsc_gamma_bound}")
     print("-" * 60)
 
     features, timestamps = load_data(dataset_name)
@@ -247,39 +289,14 @@ def main():
         use_dsc=use_dsc,
         use_pgia=use_pgia,
         use_ppu=use_ppu,
+        dsc_gamma_bound=dsc_gamma_bound,
     ).to(device)
 
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Model parameters: {total_params:,}")
     print("-" * 60)
 
-    dsc_params, dsc_gamma_params, gate_params, other_params = [], [], [], []
-    for name, p in model.named_parameters():
-        if not p.requires_grad:
-            continue
-        if "dsc." in name:
-            if "gamma" in name:
-                dsc_gamma_params.append(p)
-            else:
-                dsc_params.append(p)
-        elif p.numel() == 1 and "gamma" in name:
-            gate_params.append(p)
-        else:
-            other_params.append(p)
-
-    param_groups = [
-        {"params": other_params, "lr": learning_rate, "weight_decay": weight_decay},
-        {"params": gate_params, "lr": learning_rate * gate_lr_mult, "weight_decay": 0.0},
-    ]
-    if dsc_params:
-        param_groups.append(
-            {"params": dsc_params, "lr": learning_rate * 0.5, "weight_decay": weight_decay},
-        )
-    if dsc_gamma_params:
-        param_groups.append(
-            {"params": dsc_gamma_params, "lr": learning_rate * 1.0, "weight_decay": 0.0},
-        )
-    optimizer = torch.optim.AdamW(param_groups)
+    optimizer = build_optimizer(model)
     criterion = nn.MSELoss()
 
     paths = create_save_paths(
@@ -301,7 +318,16 @@ def main():
 
     t0 = time.time()
     for epoch in range(1, epochs + 1):
-        train_loss = train_one_epoch(model, train_loader, optimizer, criterion)
+        want_batch = save_batch_loss_epochs > 0 and epoch <= save_batch_loss_epochs
+        if want_batch:
+            train_loss, batch_losses = train_one_epoch(
+                model, train_loader, optimizer, criterion, return_batch_losses=True,
+            )
+            csv_p = os.path.join(paths["save_dir"], f"batch_loss_epoch{epoch}.csv")
+            png_p = os.path.join(paths["save_dir"], f"batch_loss_epoch{epoch}.png")
+            save_batch_loss(batch_losses, csv_p, png_p, epoch)
+        else:
+            train_loss = train_one_epoch(model, train_loader, optimizer, criterion)
 
         _, train_mse, train_mae, train_r2, _, _ = evaluate(
             model, train_eval_loader, criterion, t_min, t_max,
@@ -376,6 +402,9 @@ def main():
         "learning_rate": learning_rate,
         "weight_decay": weight_decay,
         "gate_lr_mult": gate_lr_mult,
+        "dsc_gamma_bound": dsc_gamma_bound,
+        "dsc_lr_mult": dsc_lr_mult,
+        "dsc_gamma_lr_mult": dsc_gamma_lr_mult,
         "epochs": epochs,
         "train_ratio": train_ratio,
         "device": str(device),

@@ -1,0 +1,59 @@
+{
+  "run_dir": "results/PPU_Full/pl4/y2017/train5",
+  "checks": {
+    "files": {
+      "args.json": "OK",
+      "loss.csv": "OK",
+      "loss.png": "OK",
+      "loss-zoom.png": "OK",
+      "mae.csv": "OK",
+      "mse.csv": "OK",
+      "R².csv": "OK",
+      "Overall indicators.csv": "OK",
+      "predictions.csv": "OK",
+      "prediction_curve.png": "OK",
+      "prediction_curve_168h.png": "OK",
+      "prediction_curve_168h.csv": "OK"
+    },
+    "metrics": {
+      "RMSE": 2.3099474906921387,
+      "MAE": 1.6157758235931396,
+      "R2": 0.8934878706932068
+    },
+    "loss": {
+      "first_train_loss": 1884.6304020411533,
+      "last_train_loss": 0.0050952598592485,
+      "first_test_loss": 609.7286948464133,
+      "last_test_loss": 0.0123332901095802,
+      "best_test_loss": 0.0123332901095802
+    },
+    "r2": {
+      "final_test_r2": 0.8934878706932068,
+      "best_test_r2": 0.8934878706932068
+    },
+    "predictions": {
+      "night_pred_max": 2.3735187,
+      "true_min": -0.022337811,
+      "pred_min": -6.952005,
+      "true_negative_ratio": 0.4345,
+      "pred_negative_ratio": 0.2338,
+      "negative_ratio_gap": -0.2007,
+      "negative_pred_count": 409,
+      "true_night_min": -0.021697737,
+      "true_night_p01": -0.021672,
+      "daytime_true_max": 20.662712,
+      "large_negative_threshold": -1.033136,
+      "extreme_negative_threshold": -4.132542
+    },
+    "time_shift": {
+      "corr_shift0": 0.9896,
+      "best_shift": 0,
+      "best_corr": 0.9896,
+      "corr_improvement": 0.0
+    }
+  },
+  "verdict": "FAIL",
+  "issues": [
+    "FAIL: extreme negative prediction (pred_min=-6.9520 < -4.1325)"
+  ]
+}

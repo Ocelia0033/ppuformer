@@ -1,0 +1,170 @@
+[
+  {
+    "path": "results/PPU_DSC/pl4/y2017/train1/loss.csv",
+    "rows": 50,
+    "columns": [
+      "epoch",
+      "train_loss",
+      "test_loss"
+    ],
+    "train_loss_first": 1296.480402736037,
+    "train_loss_last": 0.0069716101667533,
+    "train_loss_min": 0.0069716101667533,
+    "train_loss_max": 1296.480402736037,
+    "train_loss_best": 0.0069716101667533,
+    "test_loss_first": 442.4995131059126,
+    "test_loss_last": 3.808979764783924,
+    "test_loss_min": 3.808979764783924,
+    "test_loss_max": 442.4995131059126,
+    "test_loss_best": 3.808979764783924,
+    "train_diff_std": 159.48013020793798,
+    "test_diff_std": 38.133535982988356
+  },
+  {
+    "path": "results/PPU_DSC/pl4/y2017/train2/loss.csv",
+    "rows": 50,
+    "columns": [
+      "epoch",
+      "train_loss",
+      "test_loss"
+    ],
+    "train_loss_first": 1471.1703029149014,
+    "train_loss_last": 0.0058885746572096,
+    "train_loss_min": 0.0058885746572096,
+    "train_loss_max": 1471.1703029149014,
+    "train_loss_best": 0.0058885746572096,
+    "test_loss_first": 471.881876858798,
+    "test_loss_last": 0.011845721964809,
+    "test_loss_min": 0.011845721964809,
+    "test_loss_max": 471.881876858798,
+    "test_loss_best": 0.011845721964809,
+    "train_diff_std": 182.14981199697846,
+    "test_diff_std": 43.02837789019948
+  },
+  {
+    "path": "results/PPU_Full/pl4/y2017/train1/loss.csv",
+    "rows": 50,
+    "columns": [
+      "epoch",
+      "train_loss",
+      "test_loss"
+    ],
+    "train_loss_first": 1489.1549542207674,
+    "train_loss_last": 0.0047672082152995,
+    "train_loss_min": 0.0047672082152995,
+    "train_loss_max": 1489.1549542207674,
+    "train_loss_best": 0.0047672082152995,
+    "test_loss_first": 488.0389845414595,
+    "test_loss_last": 0.0193283208899877,
+    "test_loss_min": 0.0193283208899877,
+    "test_loss_max": 488.0389845414595,
+    "test_loss_best": 0.0193283208899877,
+    "train_diff_std": 190.03452676433434,
+    "test_diff_std": 52.676933670076096
+  },
+  {
+    "path": "results/PPU_Full/pl4/y2017/train2/loss.csv",
+    "rows": 50,
+    "columns": [
+      "epoch",
+      "train_loss",
+      "test_loss"
+    ],
+    "train_loss_first": 1879.2268645953684,
+    "train_loss_last": 0.0051312635968627,
+    "train_loss_min": 0.0051312635968627,
+    "train_loss_max": 1879.2268645953684,
+    "train_loss_best": 0.0051312635968627,
+    "test_loss_first": 597.4779205322266,
+    "test_loss_last": 0.0113008326300504,
+    "test_loss_min": 0.0113008326300504,
+    "test_loss_max": 597.4779205322266,
+    "test_loss_best": 0.0113008326300504,
+    "train_diff_std": 241.49413911725696,
+    "test_diff_std": 64.83721250186998
+  },
+  {
+    "path": "results/PPU_PGIA/pl4/y2017/train1/loss.csv",
+    "rows": 50,
+    "columns": [
+      "epoch",
+      "train_loss",
+      "test_loss"
+    ],
+    "train_loss_first": 1063.2984932912907,
+    "train_loss_last": 0.0062329658698465,
+    "train_loss_min": 0.0062329658698465,
+    "train_loss_max": 1063.2984932912907,
+    "train_loss_best": 0.0062329658698465,
+    "test_loss_first": 408.6340376420454,
+    "test_loss_last": 0.0148536957885054,
+    "test_loss_min": 0.0139333275104449,
+    "test_loss_max": 408.6340376420454,
+    "test_loss_best": 0.0139333275104449,
+    "train_diff_std": 128.29314023552809,
+    "test_diff_std": 36.35375535414464
+  },
+  {
+    "path": "results/PPU_PSG/pl4/y2017/train1/loss.csv",
+    "rows": 50,
+    "columns": [
+      "epoch",
+      "train_loss",
+      "test_loss"
+    ],
+    "train_loss_first": 1158.7893969755216,
+    "train_loss_last": 0.009583865235529,
+    "train_loss_min": 0.009583865235529,
+    "train_loss_max": 1158.7893969755216,
+    "train_loss_best": 0.009583865235529,
+    "test_loss_first": 385.74873684969816,
+    "test_loss_last": 0.0239308894442563,
+    "test_loss_min": 0.0239308894442563,
+    "test_loss_max": 385.74873684969816,
+    "test_loss_best": 0.0239308894442563,
+    "train_diff_std": 143.09729976118237,
+    "test_diff_std": 35.1107015169682
+  },
+  {
+    "path": "results/PPU_PSG_WASE_PGIA/pl4/y2017/train1/loss.csv",
+    "rows": 50,
+    "columns": [
+      "epoch",
+      "train_loss",
+      "test_loss"
+    ],
+    "train_loss_first": 1740.5391741112364,
+    "train_loss_last": 0.0046414011461384,
+    "train_loss_min": 0.0046414011461384,
+    "train_loss_max": 1740.5391741112364,
+    "train_loss_best": 0.0046414011461384,
+    "test_loss_first": 533.3898670543324,
+    "test_loss_last": 0.0084532763935964,
+    "test_loss_min": 0.0084185587707906,
+    "test_loss_max": 533.3898670543324,
+    "test_loss_best": 0.0084185587707906,
+    "train_diff_std": 223.80064866265863,
+    "test_diff_std": 57.36832754556921
+  },
+  {
+    "path": "results/PPU_WASE/pl4/y2017/train1/loss.csv",
+    "rows": 50,
+    "columns": [
+      "epoch",
+      "train_loss",
+      "test_loss"
+    ],
+    "train_loss_first": 1475.552586228635,
+    "train_loss_last": 0.0057378893165014,
+    "train_loss_min": 0.0057378893165014,
+    "train_loss_max": 1475.552586228635,
+    "train_loss_best": 0.0057378893165014,
+    "test_loss_first": 444.4117955988104,
+    "test_loss_last": 0.0142240976406769,
+    "test_loss_min": 0.0142240976406769,
+    "test_loss_max": 444.4117955988104,
+    "test_loss_best": 0.0142240976406769,
+    "train_diff_std": 193.08184575831402,
+    "test_diff_std": 57.36979690003664
+  }
+]

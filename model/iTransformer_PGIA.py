@@ -164,6 +164,7 @@ class iTransformerPGIA(nn.Module):
                  wase_hidden_dim: int = 64,
                  dsc_kernels=(3, 5, 7),
                  dsc_dropout: float = 0.0,
+                 dsc_gamma_bound: float = 0.03,
                  use_psg: bool = True,
                  use_wase: bool = True,
                  use_dsc: bool = True,
@@ -198,6 +199,7 @@ class iTransformerPGIA(nn.Module):
             kernels=dsc_kernels,
             dropout=dsc_dropout,
             use_ppu=use_ppu,
+            gamma_bound=dsc_gamma_bound,
         ) if use_dsc else None
 
         self.backbone = iTransformer(

@@ -8,26 +8,17 @@ import torch.nn as nn
 
 class DSCLocalBranch(nn.Module):
     """
-    Depthwise Separable Convolution Local Branch (DSC) — 对应论文公式 (9)(10)(11)
-    --------------------------------------------------------------------------------
-      D_k    = GELU(DWConv^(k)(X^(2)T))         k ∈ K_dsc = {3,5,7}
-      D      = [D_3, D_5, D_7]
-      residual = LayerNorm(PWConv(D)^T)
-      X^(3)  = X^(2) + γ_eff * residual
-      γ_eff  = γ_bound * tanh(γ_raw)
-
-    PPU：γ_raw 严格零初始化 → 初始 out = X^(2)；
-    PWConv 极小随机初始化 → γ 在 step0 即可获得梯度；
-    LayerNorm + tanh-bound γ 防止 residual 爆炸。
+    Depthwise Separable Convolution Local Branch (DSC)
+    弱局部修正：γ_eff * channel_scale * residual，初始 out = x。
     """
 
     def __init__(self, num_variates: int, kernels=(3, 5, 7), dropout: float = 0.0,
-                 use_ppu: bool = True):
+                 use_ppu: bool = True, gamma_bound: float = 0.03):
         super().__init__()
         self.num_variates = num_variates
         self.kernels = tuple(kernels)
         self.use_ppu = use_ppu
-        self.gamma_bound = 0.1
+        self.gamma_bound = gamma_bound
 
         self.dw_convs = nn.ModuleList([
             nn.Conv1d(
@@ -54,20 +45,18 @@ class DSCLocalBranch(nn.Module):
 
         if use_ppu:
             self.gamma = nn.Parameter(torch.zeros(1))
+            self.channel_gate = nn.Parameter(torch.zeros(num_variates))
         else:
             self.register_buffer("gamma", torch.ones(1))
+            self.register_buffer("channel_gate", torch.ones(num_variates))
 
     def forward(self, x_btn: torch.Tensor) -> torch.Tensor:
-        """
-        x_btn : [B, L, N]
-        return: [B, L, N]
-        """
-        x = x_btn.transpose(1, 2)                            # [B, N, L]
+        x = x_btn.transpose(1, 2)
 
         feats = [self.act(conv(x)) for conv in self.dw_convs]
-        d_cat = torch.cat(feats, dim=1)                      # [B, kN, L]
+        d_cat = torch.cat(feats, dim=1)
 
-        residual = self.pw(d_cat).transpose(1, 2)            # [B, L, N]
+        residual = self.pw(d_cat).transpose(1, 2)
         residual = self.res_norm(residual)
         residual = self.dropout(residual)
 
@@ -76,5 +65,6 @@ class DSCLocalBranch(nn.Module):
         else:
             gamma_eff = self.gamma
 
-        out = x_btn + gamma_eff * residual
+        channel_scale = torch.sigmoid(self.channel_gate).view(1, 1, -1)
+        out = x_btn + gamma_eff * channel_scale * residual
         return out

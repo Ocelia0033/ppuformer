@@ -13,6 +13,7 @@ from sklearn.preprocessing import MinMaxScaler
 
 from iTransformer import iTransformer
 from utils import create_save_paths, save_args_json, write_full_report, append_run_summary
+from utils.reporters import save_batch_loss
 from data_provider.split_utils import strict_chronological_split
 
 
@@ -55,6 +56,7 @@ train_ratio = 0.8             # 训练集占比
 # ---------- 输出 ----------
 results_dir = "results"       # 顶层结果目录
 loss_plot_ylim = (0, 1)           # loss-zoom 纵轴范围
+save_batch_loss_epochs = 1          # 保存前 N 个 epoch 的 batch 级 loss（0=关闭）
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -133,9 +135,10 @@ def create_dataloaders(features, timestamps, lookback_len, pred_len, train_ratio
 # ========================== 训练与评估 ==========================
 
 
-def train_one_epoch(model, train_loader, optimizer, criterion):
+def train_one_epoch(model, train_loader, optimizer, criterion, return_batch_losses=False):
     model.train()
     total_loss = 0.0
+    batch_losses = [] if return_batch_losses else None
     for x, y in train_loader:
         x, y = x.to(device), y.to(device)
         optimizer.zero_grad()
@@ -144,8 +147,14 @@ def train_one_epoch(model, train_loader, optimizer, criterion):
         loss = criterion(pred_active_power, y)
         loss.backward()
         optimizer.step()
-        total_loss += loss.item()
-    return total_loss / len(train_loader)
+        val = loss.item()
+        total_loss += val
+        if return_batch_losses:
+            batch_losses.append(val)
+    avg = total_loss / len(train_loader)
+    if return_batch_losses:
+        return avg, batch_losses
+    return avg
 
 
 def evaluate(model, loader, criterion, target_min, target_max):
@@ -241,7 +250,16 @@ def main():
     t0 = time.time()
 
     for epoch in range(1, epochs + 1):
-        train_loss = train_one_epoch(model, train_loader, optimizer, criterion)
+        want_batch = save_batch_loss_epochs > 0 and epoch <= save_batch_loss_epochs
+        if want_batch:
+            train_loss, batch_losses = train_one_epoch(
+                model, train_loader, optimizer, criterion, return_batch_losses=True,
+            )
+            csv_p = os.path.join(paths["save_dir"], f"batch_loss_epoch{epoch}.csv")
+            png_p = os.path.join(paths["save_dir"], f"batch_loss_epoch{epoch}.png")
+            save_batch_loss(batch_losses, csv_p, png_p, epoch)
+        else:
+            train_loss = train_one_epoch(model, train_loader, optimizer, criterion)
 
         _, train_mse, train_mae, train_r2, _, _ = evaluate(
             model, train_eval_loader, criterion, target_min, target_max,

@@ -21,3 +21,7 @@ datetime             model                 year    pl    train   des            
 2026-06-27 23:26:11  PPU_PSG_WASE_PGIA     2017    4     1       PSG+WASE+PGIA       1.9093      1.2043      0.9272      50        659.3    
 2026-06-27 23:49:02  PPU_DSC               2017    4     2       dsc_fix_v1          2.2607      1.5770      0.8980      50        585.8    
 2026-06-28 00:01:31  PPU_Full              2017    4     2       dsc_fix_v1          2.2091      1.4882      0.9026      50        726.4    
+2026-06-28 10:11:32  PPU_Full              2017    4     3       full_dsc_channel_g  1.9430      1.2638      0.9246      50        728.3    
+2026-06-28 10:23:34  PPU_Full              2017    4     4       full_dsc_channel_g  1.9937      1.3288      0.9207      50        714.0    
+2026-06-28 10:35:42  PPU_Full              2017    4     5       full_dsc_channel_w  2.3099      1.6158      0.8935      50        718.6    
+2026-06-28 10:47:52  PPU_Fk[hull              2017    4     6       full_from_nodsc_ft  2.1033      1.3136      0.9117      50        722.3    
