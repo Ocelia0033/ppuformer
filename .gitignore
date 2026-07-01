@@ -86,6 +86,9 @@ cython_debug/
 *.pt
 *.ckpt
 
+# ===== 实验结果（不入 git） =====
+results/
+
 # ===== 大型临时文件 =====
 *.npy
 *.pdf

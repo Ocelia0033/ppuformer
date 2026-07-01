@@ -485,22 +485,6 @@ def save_test_artifacts(
             "train_time_sec": final_metrics["train_time_sec"],
         },
     )
-    save_overall_indicators(
-        paths["overall_csv_legacy"],
-        test_eval["rmse"],
-        test_eval["mae"],
-        test_eval["r2"],
-        extras={
-            "step1_R2": final_metrics["step1_R2"],
-            "deep_night_RMSE": final_metrics["deep_night_RMSE"],
-            "deep_night_pred_abs_max": final_metrics["deep_night_pred_abs_max"],
-            "best_epoch": final_metrics["best_epoch"],
-            "best_val_loss": final_metrics["best_val_loss"],
-            "best_val_RMSE": final_metrics["best_val_RMSE"],
-            "stopped_epoch": final_metrics["stopped_epoch"],
-            "train_time_sec": final_metrics["train_time_sec"],
-        },
-    )
 
     save_best(
         paths["best_csv"],
@@ -724,7 +708,6 @@ def run_with_earlystop_protocol(spec: ExperimentSpec, smoke: bool = False) -> di
     assert best_state_dict is not None, "训练未产生任何 best checkpoint"
     model.load_state_dict(best_state_dict)
     torch.save(best_state_dict, os.path.join(paths["save_dir"], "model.pth"))
-    torch.save(best_state_dict, paths["model_pth"])
 
     save_training_artifacts(paths, history, best_epoch, spec.loss_plot_ylim)
 

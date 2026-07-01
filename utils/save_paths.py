@@ -54,7 +54,6 @@ def create_save_paths(
         "r2_png":        p("R².png"),
 
         "overall_csv":     p("overall_indicators.csv"),
-        "overall_csv_legacy": p("Overall indicators.csv"),
         "best_csv":        p("Best.csv"),
         "best_png":        p("Best.png"),
         "all_csv":         p("ALL.csv"),

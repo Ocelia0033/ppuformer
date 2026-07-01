@@ -4,10 +4,10 @@ data_provider/split_utils.py
 ==============================
 公共时间序列严格切分工具。
 
-所有训练脚本必须调用本模块的 strict_chronological_split() 函数，
-确保训练标签与测试标签在时间轴上零重叠，且 scaler 仅在训练区间 fit。
+当前最终实验脚本使用 chronological_70_10_20_split；
+strict_chronological_split 仅作为 legacy / 历史 PSO 兼容函数保留。
 
-切分协议
+切分协议（strict_chronological_split）
 --------
     split_idx = int(len(features) * train_ratio)
 
