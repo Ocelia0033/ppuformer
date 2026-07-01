@@ -3,7 +3,7 @@
 scripts/check_loss_credibility.py
 ==================================
 检查 loss.csv 是否真实、loader 是否混用、预测是否时间错位。
-可从已有结果目录离线重生成 loss_log / loss_full / loss_zoom。
+可从已有结果目录离线重生成 loss_zoom.png。
 
 Usage:
     python scripts/check_loss_credibility.py
@@ -98,12 +98,7 @@ def regenerate_plots(run_dir, df, train_col, test_col):
         epochs, df[train_col].tolist(), df[test_col].tolist(),
         save_dir=run_dir, series_label="Test", zoom_start_epoch=10,
     )
-    print(f"  regenerated: loss_log.png, loss_full.png, loss_zoom.png in {run_dir}")
-
-    old_zoom = os.path.join(run_dir, "loss-zoom.png")
-    new_zoom = os.path.join(run_dir, "loss_zoom.png")
-    if os.path.exists(old_zoom) and os.path.exists(new_zoom):
-        print(f"  note: loss-zoom.png (legacy) and loss_zoom.png (new) both exist — different files")
+    print(f"  regenerated: loss_zoom.png in {run_dir}")
 
 
 def time_shift_check(run_dir):

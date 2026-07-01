@@ -149,42 +149,12 @@ def save_loss_extended_plots(
     series_label: str = "Test",
     zoom_start_epoch: int = 10,
 ) -> None:
-    """从 epoch 级 loss 生成 loss_log / loss_full / loss_zoom 三张额外图。"""
+    """从 epoch 级 loss 生成 loss_zoom（线性）图。"""
     e = list(epochs)
     tr = list(train_loss)
     te = list(test_loss)
     if not e:
         return
-
-    # loss_full.png — 从 epoch 1 开始的完整曲线（线性）
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(e, tr, label="Train Loss")
-    ax.plot(e, te, label=f"{series_label} Loss")
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("Loss")
-    ax.set_title(f"Full Loss Curve (epoch 1–{e[-1]})")
-    _apply_linear_y_axis(ax)
-    ax.legend()
-    ax.grid(True)
-    fig.tight_layout()
-    fig.savefig(os.path.join(save_dir, "loss_full.png"), dpi=150)
-    plt.close(fig)
-
-    # loss_log.png — log scale 纵轴
-    fig, ax = plt.subplots(figsize=(10, 6))
-    tr_pos = [max(v, 1e-12) for v in tr]
-    te_pos = [max(v, 1e-12) for v in te]
-    ax.plot(e, tr_pos, label="Train Loss")
-    ax.plot(e, te_pos, label=f"{series_label} Loss")
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("Loss (log scale)")
-    ax.set_title("Loss Curve (log y-axis)")
-    ax.set_yscale("log")
-    ax.legend()
-    ax.grid(True, which="both", alpha=0.3)
-    fig.tight_layout()
-    fig.savefig(os.path.join(save_dir, "loss_log.png"), dpi=150)
-    plt.close(fig)
 
     # loss_zoom.png — 从 zoom_start_epoch 起的局部线性图
     start_idx = next((i for i, ep in enumerate(e) if ep >= zoom_start_epoch), len(e))
@@ -654,14 +624,27 @@ def write_full_report(
     epochs = history["epochs"]
 
     series_label = "Validation" if phase == "val" else "Test"
-    series_lower = series_label.lower()
-
-    train_loss = history["train_loss"]
+    train_loss = history.get("train_eval_loss", history.get("train_loss"))
     test_loss = history["test_loss"]
+    train_step_loss = history.get("train_step_loss")
+
+    if train_step_loss is not None:
+        pd.DataFrame({
+            "epoch": epochs,
+            "train_eval_loss": train_loss,
+            "train_step_loss": train_step_loss,
+            "test_loss": test_loss,
+        }).to_csv(paths["loss_csv"], index=False)
+    else:
+        pd.DataFrame({
+            "epoch": epochs,
+            "train_eval_loss": train_loss,
+            "test_loss": test_loss,
+        }).to_csv(paths["loss_csv"], index=False)
 
     save_curve(
         epochs, train_loss, test_loss,
-        paths["loss_csv"], paths["loss_png"],
+        None, paths["loss_png"],
         ylabel="Loss",
         title=f"Training and {series_label} Loss Curve",
         ylim=None,
@@ -677,12 +660,6 @@ def write_full_report(
             skip_epochs=skip_epochs_for_zoom,
             series_label=series_label,
         )
-    save_loss_extended_plots(
-        epochs, train_loss, test_loss,
-        save_dir=paths["save_dir"],
-        series_label=series_label,
-        zoom_start_epoch=skip_epochs_for_zoom if skip_epochs_for_zoom > 0 else 10,
-    )
     save_curve(
         epochs, history["train_mae"], history["test_mae"],
         paths["mae_csv"], paths["mae_png"],

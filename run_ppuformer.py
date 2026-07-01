@@ -21,43 +21,45 @@ from data_provider.split_utils import strict_chronological_split
 # model_name 会根据下面的模块开关自动生成（见 main() 开头），不用手动改。
 # 例如：PPU_PGIA / PPU_PGIA_PSG / PPU_Full / iTransformer17 / PPU_PGIA_noRevIN
 # des 是自由文字描述，写入 args.json 和 all_runs.txt，方便你备注。
-des = ""                      # 留空=自动生成，或手动写如 "test1" "50ep验证" 等
+des = "frozen_pso_top1"          # 冻结当前 Robust PSO Top1 作为主候选
 
 # ---------- 数据集 ----------
 dataset_name = "pv2017_ext"   # 17 维扩展特征
 year = None                   # 留 None 自动推导
 
 # ---------- 预测任务 ----------
-pred_len = 4
+pred_len = 1
 lookback_len = 168
 num_variates = 17             # pv2017_ext 有 17 列特征
 target_idx = 4                # features[:, 4] = Active_Power
 
 # ---------- 模块开关（改 True/False 就行）----------
-use_psg  = True               # Physics State Gate
-use_wase = True              # Weather Aware Spectral Enhancement
-use_dsc  = False              # Depthwise Separable Conv
-use_pgia = True              # Physics Guided Instance-Aware
-use_ppu  = True              # Progressive Physical Unlocking（γ 从 0 起步）
+use_psg  = False               # Physics State Gate
+use_wase = True               # Weather Aware Spectral Enhancement
+use_dsc  = False               # Depthwise Separable Conv (PSO 搜索包含 DSC)
+use_pgia = False               # Physics Guided Instance-Aware
+use_ppu  = True               # Progressive Physical Unlocking（γ 从 0 起步）
 use_revin = True              # RevIN 可逆实例归一化
 
 # ---------- 模型超参 ----------
-dim = 128
-depth = 4
+dim = 192                     # Frozen Robust PSO Top1
+depth = 2
 heads = 2
-dim_head = 32
+dim_head = 16
+attn_dropout = 0.16817512929497844
+ff_dropout = 0.16817512929497844
 
 # ---------- 训练超参 ----------
-epochs = 50
-batch_size = 32
-learning_rate = 0.000190
-weight_decay = 0.0
-gate_lr_mult = 5              # PSG/WASE γ 门参数学习率倍率
+epochs = 200                  # 保持现有正式训练轮数；若要严格复现 Top1 可改为 145
+batch_size = 128
+learning_rate = 0.0001273536110892301
+weight_decay = 0.0            # 统一不用 weight_decay
+gate_lr_mult = 5.324064377906677
 
 # ---------- DSC 弱接入 ----------
-dsc_gamma_bound = 0.03        # γ 上界（channel_gate + 弱 gamma）
-dsc_lr_mult = 0.2               # DSC 非 gamma 参数 lr 倍率
-dsc_gamma_lr_mult = 0.5         # DSC gamma 参数 lr 倍率
+dsc_gamma_bound = 0.009999999776482582
+dsc_lr_mult = 0.6302068101206094
+dsc_gamma_lr_mult = 1.024075658413647
 
 # ---------- 随机种子 ----------
 seed = 35040                  # 固定种子，保证可复现
@@ -173,18 +175,19 @@ def train_one_epoch(model, train_loader, optimizer, criterion, return_batch_loss
 
 def evaluate(model, loader, criterion, t_min, t_max):
     model.eval()
-    total_loss = 0.0
+    sse = 0.0
+    count = 0
     all_preds, all_targets = [], []
     with torch.no_grad():
         for x, y in loader:
             x, y = x.to(device), y.to(device)
             pred = model(x)
             pred_ap = pred[:, :, target_idx]
-            loss = criterion(pred_ap, y)
-            total_loss += loss.item()
+            sse += torch.sum((pred_ap - y) ** 2).item()
+            count += y.numel()
             all_preds.append(pred_ap.cpu().numpy())
             all_targets.append(y.cpu().numpy())
-    avg_loss = total_loss / len(loader)
+    avg_loss = sse / count
     all_preds = np.concatenate(all_preds, axis=0)
     all_targets = np.concatenate(all_targets, axis=0)
 
@@ -215,18 +218,18 @@ def build_optimizer(model):
             other_params.append(p)
 
     param_groups = [
-        {"params": other_params, "lr": learning_rate, "weight_decay": weight_decay},
-        {"params": gate_params, "lr": learning_rate * gate_lr_mult, "weight_decay": 0.0},
+        {"params": other_params, "lr": learning_rate},
+        {"params": gate_params, "lr": learning_rate * gate_lr_mult},
     ]
     if dsc_params:
         param_groups.append(
-            {"params": dsc_params, "lr": learning_rate * dsc_lr_mult, "weight_decay": weight_decay},
+            {"params": dsc_params, "lr": learning_rate * dsc_lr_mult},
         )
     if dsc_gamma_params:
         param_groups.append(
-            {"params": dsc_gamma_params, "lr": learning_rate * dsc_gamma_lr_mult, "weight_decay": 0.0},
+            {"params": dsc_gamma_params, "lr": learning_rate * dsc_gamma_lr_mult},
         )
-    return torch.optim.AdamW(param_groups)
+    return torch.optim.Adam(param_groups)
 
 
 def main():
@@ -284,6 +287,8 @@ def main():
         num_tokens_per_variate=1,
         use_reversible_instance_norm=use_revin,
         flash_attn=True,
+        attn_dropout=attn_dropout,
+        ff_dropout=ff_dropout,
         use_psg=use_psg,
         use_wase=use_wase,
         use_dsc=use_dsc,
@@ -310,7 +315,9 @@ def main():
 
     history = {
         "epochs": [],
-        "train_loss": [], "test_loss": [],
+        "train_step_loss": [],
+        "train_eval_loss": [],
+        "test_loss": [],
         "train_mae": [],  "test_mae": [],
         "train_mse": [],  "test_mse": [],
         "train_r2": [],   "test_r2": [],
@@ -320,16 +327,16 @@ def main():
     for epoch in range(1, epochs + 1):
         want_batch = save_batch_loss_epochs > 0 and epoch <= save_batch_loss_epochs
         if want_batch:
-            train_loss, batch_losses = train_one_epoch(
+            train_step_loss, batch_losses = train_one_epoch(
                 model, train_loader, optimizer, criterion, return_batch_losses=True,
             )
             csv_p = os.path.join(paths["save_dir"], f"batch_loss_epoch{epoch}.csv")
             png_p = os.path.join(paths["save_dir"], f"batch_loss_epoch{epoch}.png")
             save_batch_loss(batch_losses, csv_p, png_p, epoch)
         else:
-            train_loss = train_one_epoch(model, train_loader, optimizer, criterion)
+            train_step_loss = train_one_epoch(model, train_loader, optimizer, criterion)
 
-        _, train_mse, train_mae, train_r2, _, _ = evaluate(
+        train_eval_loss, train_mse, train_mae, train_r2, _, _ = evaluate(
             model, train_eval_loader, criterion, t_min, t_max,
         )
         test_loss, test_mse, test_mae, test_r2, _, _ = evaluate(
@@ -337,7 +344,8 @@ def main():
         )
 
         history["epochs"].append(epoch)
-        history["train_loss"].append(train_loss)
+        history["train_step_loss"].append(train_step_loss)
+        history["train_eval_loss"].append(train_eval_loss)
         history["test_loss"].append(test_loss)
         history["train_mae"].append(train_mae)
         history["test_mae"].append(test_mae)
@@ -348,9 +356,11 @@ def main():
 
         if epoch == 1 or epoch == epochs or epoch % 5 == 0:
             print(
-                f"Epoch [{epoch:3d}/{epochs}]  "
-                f"Train Loss: {train_loss:.6f}  Test Loss: {test_loss:.6f}  "
-                f"Test MAE: {test_mae:.4f}  Test R²: {test_r2:.4f}"
+                f"Epoch [{epoch}/{epochs}]  "
+                f"TrainEval Loss: {train_eval_loss:.6f}  "
+                f"TrainStep Loss: {train_step_loss:.6f}  "
+                f"Test Loss: {test_loss:.6f}  "
+                f"Train R2: {train_r2:.4f}  Test R2: {test_r2:.4f}"
             )
 
     train_time_sec = time.time() - t0

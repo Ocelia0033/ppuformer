@@ -61,7 +61,7 @@ trans_activation = "gelu"
 trans_factor = 5
 
 # ---------- 训练超参（原论文用 warm-up + 1e-3 量级 lr，这里用裸 Adam + 大 lr 对齐论文设置） ----------
-epochs = 200
+epochs = 100
 batch_size = 128
 learning_rate = 0.001951
 seed = 35040
@@ -208,7 +208,8 @@ def train_one_epoch(model, loader, optimizer, criterion, target_idx):
 
 def evaluate(model, loader, criterion, target_min, target_max, target_idx):
     model.eval()
-    total_loss = 0.0
+    sse = 0.0
+    count = 0
     all_preds, all_targets = [], []
     with torch.no_grad():
         for x, y, x_mark, y_mark in loader:
@@ -219,11 +220,11 @@ def evaluate(model, loader, criterion, target_min, target_max, target_idx):
 
             pred = model(x, x_mark, y_mark)
             pred_ap = pred[:, :, target_idx]
-            loss = criterion(pred_ap, y)
-            total_loss += loss.item()
+            sse += torch.sum((pred_ap - y) ** 2).item()
+            count += y.numel()
             all_preds.append(pred_ap.cpu().numpy())
             all_targets.append(y.cpu().numpy())
-    avg_loss = total_loss / len(loader)
+    avg_loss = sse / count
     all_preds = np.concatenate(all_preds, axis=0)
     all_targets = np.concatenate(all_targets, axis=0)
 
@@ -301,7 +302,9 @@ def main():
 
     history = {
         "epochs": [],
-        "train_loss": [], "test_loss": [],
+        "train_step_loss": [],
+        "train_eval_loss": [],
+        "test_loss": [],
         "train_mae": [],  "test_mae": [],
         "train_mse": [],  "test_mse": [],
         "train_r2": [],   "test_r2": [],
@@ -310,17 +313,18 @@ def main():
     t0 = time.time()
 
     for epoch in range(1, epochs + 1):
-        train_loss = train_one_epoch(model, train_loader, optimizer, criterion, target_idx)
+        train_step_loss = train_one_epoch(model, train_loader, optimizer, criterion, target_idx)
 
-        test_loss, test_mse, test_mae, test_r2, _, _ = evaluate(
-            model, test_loader, criterion, target_min, target_max, target_idx,
-        )
         train_eval_loss, train_mse, train_mae, train_r2, _, _ = evaluate(
             model, train_eval_loader, criterion, target_min, target_max, target_idx,
         )
+        test_loss, test_mse, test_mae, test_r2, _, _ = evaluate(
+            model, test_loader, criterion, target_min, target_max, target_idx,
+        )
 
         history["epochs"].append(epoch)
-        history["train_loss"].append(train_loss)
+        history["train_step_loss"].append(train_step_loss)
+        history["train_eval_loss"].append(train_eval_loss)
         history["test_loss"].append(test_loss)
         history["train_mae"].append(train_mae)
         history["test_mae"].append(test_mae)
@@ -330,9 +334,11 @@ def main():
         history["test_r2"].append(test_r2)
 
         print(
-            f"Epoch [{epoch:3d}/{epochs}]  "
-            f"Train Loss: {train_loss:.6f}  Test Loss: {test_loss:.6f}  "
-            f"Test MAE: {test_mae:.4f}  Test R²: {test_r2:.4f}"
+            f"Epoch [{epoch}/{epochs}]  "
+            f"TrainEval Loss: {train_eval_loss:.6f}  "
+            f"TrainStep Loss: {train_step_loss:.6f}  "
+            f"Test Loss: {test_loss:.6f}  "
+            f"Train R2: {train_r2:.4f}  Test R2: {test_r2:.4f}"
         )
 
     train_time_sec = time.time() - t0

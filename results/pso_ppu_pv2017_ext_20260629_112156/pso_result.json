@@ -1,0 +1,102 @@
+{
+  "dataset_name": "pv2017_ext",
+  "fixed": {
+    "num_variates": 17,
+    "target_idx": 4,
+    "lookback_len": 168,
+    "pred_len": 4,
+    "seed": 35040,
+    "optimizer": "Adam",
+    "scheduler": null,
+    "loss": "MSE",
+    "weight_decay": 0.0,
+    "use_revin": true,
+    "use_ppu": true,
+    "use_psg": true,
+    "use_wase": true,
+    "use_dsc": true,
+    "use_pgia": true,
+    "pso_search_split": "70/10/20",
+    "final_train_split": "80/20",
+    "pso_search_split_info": {
+      "total_len": 8760,
+      "train_end": 6132,
+      "val_end": 7008,
+      "train_label_range": [
+        168,
+        6131
+      ],
+      "val_label_range": [
+        6132,
+        7007
+      ],
+      "test_label_range": [
+        7008,
+        8759
+      ],
+      "scaler_fit_range": [
+        0,
+        6131
+      ]
+    },
+    "final_train_split_info": {
+      "raw_total_len": 8760,
+      "split_idx": 7008,
+      "train_raw_range": "[0, 7007]",
+      "train_label_range": "[168, 7007]",
+      "test_context_range": "[6840, 7007]",
+      "test_label_range": "[7008, 8759]",
+      "train_samples": 6837,
+      "test_samples": 1749,
+      "label_overlap": false,
+      "scaler_fit_range": "[0, 7007]"
+    }
+  },
+  "pso_config": {
+    "num_particles": 10,
+    "num_iterations": 6,
+    "epochs_per_candidate": 150,
+    "param_names": [
+      "dim",
+      "depth",
+      "heads",
+      "dim_head",
+      "batch_size",
+      "log10_lr",
+      "dropout",
+      "gate_lr_mult",
+      "dsc_lr_mult",
+      "dsc_gamma_lr_mult",
+      "dsc_gamma_bound"
+    ]
+  },
+  "best_fitness": 2.020776227154239,
+  "best_candidate": {
+    "iteration": 6,
+    "particle": 7,
+    "dim": 192,
+    "depth": 2,
+    "heads": 2,
+    "dim_head": 16,
+    "batch_size": 128,
+    "log10_lr": -3.8949887361821722,
+    "learning_rate": 0.0001273536110892301,
+    "dropout": 0.16817512929497844,
+    "gate_lr_mult": 5.324064377906677,
+    "dsc_lr_mult": 0.6302068101206094,
+    "dsc_gamma_lr_mult": 1.024075658413647,
+    "dsc_gamma_bound": 0.009999999776482582,
+    "fitness": 2.020776227154239,
+    "best_val_RMSE": 1.769332234557404,
+    "best_epoch": 145,
+    "train_RMSE_at_best": 1.0964166558489348,
+    "val_RMSE_at_best": 1.769332234557404,
+    "train_val_gap": 0.6729155787084693,
+    "mean_last10_val_RMSE": 1.7878914724634316,
+    "late_overfit_gap": 0.018559237906027537,
+    "deep_night_RMSE_at_best": 0.4028970003128052,
+    "deep_night_abs_max_at_best": 1.618553876876831,
+    "elapsed_seconds": 284.25,
+    "status": "ok"
+  }
+}

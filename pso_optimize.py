@@ -47,7 +47,8 @@ num_variates = 5              # 输入特征数
 
 # ---------- 训练超参（dim/depth/heads/dim_head/lr 由 PSO 自动搜，不在这里设）----------
 epochs = 100
-train_ratio = 0.9
+train_ratio = 0.8
+val_ratio_within_train = 0.2
 
 # ---------- 输出 ----------
 results_dir = "results"
@@ -142,17 +143,49 @@ def create_dataloaders(features, timestamps, lookback_len, pred_len, train_ratio
     )
 
 
+def create_search_dataloaders(features, timestamps, lookback_len, pred_len,
+                              train_ratio, val_ratio, batch_size):
+    """Create PSO train/validation loaders without touching the final 20% test holdout."""
+    split_idx = int(len(features) * train_ratio)
+    train_raw = features[:split_idx]
+    train_timestamps = timestamps[:split_idx]
+    target_idx = features.shape[1] - 1
+
+    inner_split = int(len(train_raw) * (1.0 - val_ratio))
+    val_context_start = inner_split - lookback_len
+    if val_context_start < 0:
+        raise ValueError("内部 validation 切分后训练段不足以提供 lookback 上下文")
+
+    scaler = MinMaxScaler()
+    scaler.fit(train_raw[:inner_split])
+
+    train_data = scaler.transform(train_raw[:inner_split])
+    val_data = scaler.transform(train_raw[val_context_start:])
+    val_timestamps = train_timestamps[val_context_start:]
+
+    train_dataset = TimeSeriesDataset(train_data, train_timestamps[:inner_split],
+                                      lookback_len, pred_len)
+    val_dataset = TimeSeriesDataset(val_data, val_timestamps,
+                                    lookback_len, pred_len)
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, drop_last=False)
+
+    target_min = scaler.data_min_[target_idx]
+    target_max = scaler.data_max_[target_idx]
+    return train_loader, val_loader, target_min, target_max
+
+
 # ========================== 模型评估（PSO 搜索阶段，只关心 RMSE）==========================
 
 
 def train_and_evaluate(dim, depth, heads, dim_head, learning_rate):
-    """给定一组超参数，训练模型并返回测试 RMSE（作为 PSO 适应度值）。"""
+    """给定一组超参数，训练模型并返回 validation RMSE（作为 PSO 适应度值）。"""
     try:
         features, timestamps = load_data(dataset_name)
-        (train_loader, _, test_loader,
-         _, target_min, target_max, _) = create_dataloaders(
-            features, timestamps, lookback_len, pred_len, train_ratio, batch_size,
-            verbose=False,
+        train_loader, val_loader, target_min, target_max = create_search_dataloaders(
+            features, timestamps, lookback_len, pred_len,
+            train_ratio, val_ratio_within_train, batch_size,
         )
 
         model = iTransformer(
@@ -184,7 +217,7 @@ def train_and_evaluate(dim, depth, heads, dim_head, learning_rate):
         model.eval()
         all_preds, all_targets = [], []
         with torch.no_grad():
-            for x, y in test_loader:
+            for x, y in val_loader:
                 x, y = x.to(device), y.to(device)
                 pred = model(x)
                 all_preds.append(pred[:, :, -1].cpu().numpy())
@@ -256,6 +289,7 @@ class PSOOptimizer:
         print("=" * 70)
         print("PSO 超参数优化开始")
         print(f"粒子数: {self.n_particles}, 迭代次数: {self.n_iterations}")
+        print(f"最终 holdout 保持 train_ratio={train_ratio:.1f}，PSO 只看训练段内部 validation")
         print(f"每次评估训练 {epochs} 个 epoch")
         print("=" * 70)
 
@@ -275,7 +309,7 @@ class PSOOptimizer:
                 fitness = train_and_evaluate(dim, depth, heads, dim_head, lr)
                 particle.fitness = fitness
 
-                print(f"  -> RMSE = {fitness:.6f}")
+                print(f"  -> Val RMSE = {fitness:.6f}")
 
                 if fitness < particle.best_fitness:
                     particle.best_fitness = fitness
@@ -299,7 +333,7 @@ class PSOOptimizer:
 
             self.fitness_history.append(self.global_best_fitness)
             best_params = decode_params(self.global_best_position)
-            print(f"\n  >>> 当前全局最优 RMSE = {self.global_best_fitness:.6f}")
+            print(f"\n  >>> 当前全局最优 Val RMSE = {self.global_best_fitness:.6f}")
             print(f"  >>> 最优参数: dim={best_params[0]}, depth={best_params[1]}, "
                   f"heads={best_params[2]}, dim_head={best_params[3]}, "
                   f"lr={best_params[4]:.6f}")
@@ -404,7 +438,6 @@ def final_train_and_save(best_params, fitness_history):
     }
 
     t0 = time.time()
-    best_test_mse = float("inf")
 
     for epoch in range(1, epochs + 1):
         train_loss = train_one_epoch(model, train_loader, optimizer, criterion)
@@ -425,10 +458,6 @@ def final_train_and_save(best_params, fitness_history):
         history["train_r2"].append(train_r2)
         history["test_r2"].append(test_r2)
 
-        if test_mse < best_test_mse:
-            best_test_mse = test_mse
-            torch.save(model.state_dict(), paths["model_pth"])
-
         if epoch % 10 == 0 or epoch == 1:
             print(f"  Epoch [{epoch}/{epochs}]  "
                   f"Train Loss: {train_loss:.6f}  Test Loss: {test_loss:.6f}  "
@@ -436,7 +465,7 @@ def final_train_and_save(best_params, fitness_history):
 
     train_time_sec = time.time() - t0
 
-    model.load_state_dict(torch.load(paths["model_pth"], map_location=device))
+    torch.save(model.state_dict(), paths["model_pth"])
     _, _, _, _, all_preds, all_targets = evaluate(
         model, test_loader, criterion, target_min, target_max
     )
@@ -496,10 +525,12 @@ def final_train_and_save(best_params, fitness_history):
         "learning_rate": float(lr),
         "epochs": epochs,
         "train_ratio": train_ratio,
+        "val_ratio_within_train": val_ratio_within_train,
         "device": str(device),
         "pso": {
             "particles": PSO_PARTICLES,
             "iterations": PSO_ITERATIONS,
+            "objective": "validation_rmse",
             "w": PSO_W,
             "c1": PSO_C1,
             "c2": PSO_C2,

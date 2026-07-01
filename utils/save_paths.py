@@ -45,7 +45,7 @@ def create_save_paths(
 
         "loss_csv":      p("loss.csv"),
         "loss_png":      p("loss.png"),
-        "loss_zoom_png": p("loss-zoom.png"),
+        "loss_zoom_png": p("loss_zoom.png"),
         "mae_csv":       p("mae.csv"),
         "mae_png":       p("mae.png"),
         "mse_csv":       p("mse.csv"),

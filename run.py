@@ -160,18 +160,19 @@ def train_one_epoch(model, train_loader, optimizer, criterion, return_batch_loss
 def evaluate(model, loader, criterion, target_min, target_max):
     """在 loader 上做完整评估，返回归一化 MSE loss + 反归一化指标 + 反归一化的预测/真实值。"""
     model.eval()
-    total_loss = 0.0
+    sse = 0.0
+    count = 0
     all_preds, all_targets = [], []
     with torch.no_grad():
         for x, y in loader:
             x, y = x.to(device), y.to(device)
             pred = model(x)
             pred_active_power = pred[:, :, -1]
-            loss = criterion(pred_active_power, y)
-            total_loss += loss.item()
+            sse += torch.sum((pred_active_power - y) ** 2).item()
+            count += y.numel()
             all_preds.append(pred_active_power.cpu().numpy())
             all_targets.append(y.cpu().numpy())
-    avg_loss = total_loss / len(loader)
+    avg_loss = sse / count
     all_preds = np.concatenate(all_preds, axis=0)
     all_targets = np.concatenate(all_targets, axis=0)
 
@@ -241,7 +242,9 @@ def main():
 
     history = {
         "epochs": [],
-        "train_loss": [], "test_loss": [],
+        "train_step_loss": [],
+        "train_eval_loss": [],
+        "test_loss": [],
         "train_mae": [],  "test_mae": [],
         "train_mse": [],  "test_mse": [],
         "train_r2": [],   "test_r2": [],
@@ -252,16 +255,16 @@ def main():
     for epoch in range(1, epochs + 1):
         want_batch = save_batch_loss_epochs > 0 and epoch <= save_batch_loss_epochs
         if want_batch:
-            train_loss, batch_losses = train_one_epoch(
+            train_step_loss, batch_losses = train_one_epoch(
                 model, train_loader, optimizer, criterion, return_batch_losses=True,
             )
             csv_p = os.path.join(paths["save_dir"], f"batch_loss_epoch{epoch}.csv")
             png_p = os.path.join(paths["save_dir"], f"batch_loss_epoch{epoch}.png")
             save_batch_loss(batch_losses, csv_p, png_p, epoch)
         else:
-            train_loss = train_one_epoch(model, train_loader, optimizer, criterion)
+            train_step_loss = train_one_epoch(model, train_loader, optimizer, criterion)
 
-        _, train_mse, train_mae, train_r2, _, _ = evaluate(
+        train_eval_loss, train_mse, train_mae, train_r2, _, _ = evaluate(
             model, train_eval_loader, criterion, target_min, target_max,
         )
         test_loss, test_mse, test_mae, test_r2, _, _ = evaluate(
@@ -269,7 +272,8 @@ def main():
         )
 
         history["epochs"].append(epoch)
-        history["train_loss"].append(train_loss)
+        history["train_step_loss"].append(train_step_loss)
+        history["train_eval_loss"].append(train_eval_loss)
         history["test_loss"].append(test_loss)
         history["train_mae"].append(train_mae)
         history["test_mae"].append(test_mae)
@@ -279,9 +283,11 @@ def main():
         history["test_r2"].append(test_r2)
 
         print(
-            f"Epoch [{epoch:3d}/{epochs}]  "
-            f"Train Loss: {train_loss:.6f}  Test Loss: {test_loss:.6f}  "
-            f"Test MAE: {test_mae:.4f}  Test R²: {test_r2:.4f}"
+            f"Epoch [{epoch}/{epochs}]  "
+            f"TrainEval Loss: {train_eval_loss:.6f}  "
+            f"TrainStep Loss: {train_step_loss:.6f}  "
+            f"Test Loss: {test_loss:.6f}  "
+            f"Train R2: {train_r2:.4f}  Test R2: {test_r2:.4f}"
         )
 
     train_time_sec = time.time() - t0

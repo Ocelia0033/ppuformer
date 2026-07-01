@@ -28,7 +28,7 @@ def check_file_exists(run_dir, filename):
 
 def audit_files(run_dir):
     required = [
-        "args.json", "loss.csv", "loss.png", "loss-zoom.png",
+        "args.json", "loss.csv", "loss.png", "loss_zoom.png",
         "mae.csv", "mse.csv", "R².csv", "Overall indicators.csv",
         "predictions.csv", "prediction_curve.png",
         "prediction_curve_168h.png", "prediction_curve_168h.csv",
