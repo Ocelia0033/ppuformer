@@ -14,6 +14,7 @@ class _PatchTSTConfig:
         self,
         enc_in: int,
         seq_len: int,
+        label_len: int,
         pred_len: int,
         d_model: int = 128,
         n_heads: int = 4,
@@ -27,7 +28,7 @@ class _PatchTSTConfig:
     ):
         self.task_name = "short_term_forecast"
         self.seq_len = seq_len
-        self.label_len = seq_len // 2
+        self.label_len = label_len
         self.pred_len = pred_len
         self.enc_in = enc_in
         self.dec_in = enc_in
@@ -74,6 +75,7 @@ class PatchTSTWrapper(nn.Module):
         cfg = _PatchTSTConfig(
             enc_in=num_variates,
             seq_len=seq_len,
+            label_len=label_len,
             pred_len=pred_len,
             d_model=d_model,
             n_heads=n_heads,

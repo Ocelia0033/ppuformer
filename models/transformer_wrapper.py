@@ -82,9 +82,9 @@ class TransformerWrapper(nn.Module):
         x_mark_dec: torch.Tensor | None = None,
     ) -> torch.Tensor:
         B, L, N = x_enc.shape
-        x_dec = torch.zeros(
-            B, self.label_len + self.pred_len, N,
-            device=x_enc.device, dtype=x_enc.dtype,
+        dec_zeros = torch.zeros(
+            B, self.pred_len, N, device=x_enc.device, dtype=x_enc.dtype
         )
-        out = self.transformer(x_enc, None, x_dec, None)
+        x_dec = torch.cat([x_enc[:, -self.label_len:, :], dec_zeros], dim=1)
+        out = self.transformer(x_enc, x_mark_enc, x_dec, x_mark_dec)
         return out

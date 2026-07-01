@@ -26,26 +26,51 @@ def check_file_exists(run_dir, filename):
     return "OK", path
 
 
+def check_any_file_exists(run_dir, filenames):
+    for filename in filenames:
+        status, path = check_file_exists(run_dir, filename)
+        if status == "OK":
+            return "OK", path
+        if status == "EMPTY":
+            return "EMPTY", path
+    return "MISSING", None
+
+
 def audit_files(run_dir):
     required = [
-        "args.json", "loss.csv", "loss.png", "loss_zoom.png",
-        "mae.csv", "mse.csv", "R².csv", "Overall indicators.csv",
-        "predictions.csv", "prediction_curve.png",
-        "prediction_curve_168h.png", "prediction_curve_168h.csv",
+        "args.json",
+        "loss.csv",
+        "loss.png",
+        "loss_zoom.png",
+        "mae.csv",
+        "mse.csv",
+        "R².csv",
+        ("Overall indicators.csv", "overall_indicators.csv"),
+        "predictions.csv",
+        "prediction_curve.png",
+        "prediction_curve_168h.png",
+        "prediction_curve_168h.csv",
     ]
     results = {}
     all_pass = True
     for f in required:
-        status, path = check_file_exists(run_dir, f)
-        results[f] = status
+        if isinstance(f, tuple):
+            status, path = check_any_file_exists(run_dir, f)
+            key = " / ".join(f)
+        else:
+            status, path = check_file_exists(run_dir, f)
+            key = f
+        results[key] = status
         if status != "OK":
             all_pass = False
     return results, all_pass
 
 
 def audit_metrics(run_dir):
-    path = os.path.join(run_dir, "Overall indicators.csv")
-    if not os.path.exists(path):
+    status, path = check_any_file_exists(
+        run_dir, ["Overall indicators.csv", "overall_indicators.csv"]
+    )
+    if status != "OK" or path is None:
         return None, "FAIL: file missing"
     df = pd.read_csv(path)
     info = {}
@@ -91,7 +116,7 @@ def audit_metrics(run_dir):
     warnings = []
     for key in ["RMSE", "MAE", "R2"]:
         if key not in info:
-            warnings.append(f"WARN: {key} not found in Overall indicators.csv")
+            warnings.append(f"WARN: {key} not found in {os.path.basename(path)}")
 
     return info, warnings if warnings else "OK"
 

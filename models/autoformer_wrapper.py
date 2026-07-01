@@ -73,4 +73,4 @@ class AutoformerWrapper(nn.Module):
         )
         x_dec = torch.cat([x_enc[:, -self.label_len:, :], dec_zeros], dim=1)
 
-        return self.autoformer(x_enc, None, x_dec, None)
+        return self.autoformer(x_enc, x_mark_enc, x_dec, x_mark_dec)

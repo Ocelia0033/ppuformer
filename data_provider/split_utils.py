@@ -138,3 +138,128 @@ def strict_chronological_split(features, timestamps, lookback_len, pred_len,
         result["test_time_feats"] = test_time_feats
 
     return result
+
+
+def chronological_70_10_20_split(
+    features,
+    timestamps,
+    lookback_len,
+    pred_len,
+    train_ratio=0.7,
+    val_end_ratio=0.8,
+    target_idx=4,
+    time_feats=None,
+    verbose=True,
+):
+    """
+    严格时间顺序 70/10/20 划分。
+
+    约束
+    ----
+    1. train = 前 70%，val = 70%~80%，test = 后 20%
+    2. scaler 只能 fit train_raw
+    3. val/test 仅允许向前借 ``lookback_len`` 作为历史上下文
+    4. train/val/test 标签区间零重叠
+    """
+    T = len(features)
+    train_end = int(T * train_ratio)
+    val_end = int(T * val_end_ratio)
+
+    train_data_raw = features[:train_end]
+    val_data_raw = features[train_end - lookback_len:val_end]
+    test_data_raw = features[val_end - lookback_len:]
+
+    train_timestamps = timestamps[:train_end]
+    val_timestamps = timestamps[train_end - lookback_len:val_end]
+    test_timestamps = timestamps[val_end - lookback_len:]
+
+    scaler = MinMaxScaler()
+    scaler.fit(train_data_raw)
+    train_data = scaler.transform(train_data_raw)
+    val_data = scaler.transform(val_data_raw)
+    test_data = scaler.transform(test_data_raw)
+
+    train_time_feats = None
+    val_time_feats = None
+    test_time_feats = None
+    if time_feats is not None:
+        train_time_feats = time_feats[:train_end]
+        val_time_feats = time_feats[train_end - lookback_len:val_end]
+        test_time_feats = time_feats[val_end - lookback_len:]
+
+    train_label_min = lookback_len
+    train_label_max = train_end - 1
+    val_label_min = train_end
+    val_label_max = val_end - 1
+    test_label_min = val_end
+    test_label_max = T - 1
+
+    assert train_label_max < val_label_min, (
+        f"train/val 标签重叠: {train_label_max} >= {val_label_min}"
+    )
+    assert val_label_max < test_label_min, (
+        f"val/test 标签重叠: {val_label_max} >= {test_label_min}"
+    )
+
+    train_samples = train_end - lookback_len - pred_len + 1
+    val_samples = val_end - train_end - pred_len + 1
+    test_samples = T - val_end - pred_len + 1
+
+    assert train_samples > 0, f"训练样本数不足: {train_samples}"
+    assert val_samples > 0, f"验证样本数不足: {val_samples}"
+    assert test_samples > 0, f"测试样本数不足: {test_samples}"
+
+    split_info = {
+        "split_protocol": "chronological_70_10_20",
+        "raw_total_len": T,
+        "train_ratio": train_ratio,
+        "val_end_ratio": val_end_ratio,
+        "train_end": train_end,
+        "val_end": val_end,
+        "lookback_len": lookback_len,
+        "pred_len": pred_len,
+        "train_raw_range": [0, train_end - 1],
+        "val_context_range": [train_end - lookback_len, train_end - 1],
+        "val_raw_range": [train_end, val_end - 1],
+        "test_context_range": [val_end - lookback_len, val_end - 1],
+        "test_raw_range": [val_end, T - 1],
+        "train_label_range": [train_label_min, train_label_max],
+        "val_label_range": [val_label_min, val_label_max],
+        "test_label_range": [test_label_min, test_label_max],
+        "train_samples": train_samples,
+        "val_samples": val_samples,
+        "test_samples": test_samples,
+        "label_overlap": False,
+        "scaler_fit_range": [0, train_end - 1],
+        "target_idx": target_idx,
+    }
+
+    if verbose:
+        print("=" * 60)
+        print("  严格 70/10/20 时间序列切分审计")
+        print("=" * 60)
+        for k, v in split_info.items():
+            print(f"  {k:25s} = {v}")
+        print("=" * 60)
+
+    result = {
+        "train_data": train_data,
+        "val_data": val_data,
+        "test_data": test_data,
+        "train_data_raw": train_data_raw,
+        "val_data_raw": val_data_raw,
+        "test_data_raw": test_data_raw,
+        "train_timestamps": train_timestamps,
+        "val_timestamps": val_timestamps,
+        "test_timestamps": test_timestamps,
+        "scaler": scaler,
+        "split_info": split_info,
+        "target_min": float(scaler.data_min_[target_idx]),
+        "target_max": float(scaler.data_max_[target_idx]),
+    }
+    if time_feats is not None:
+        result["train_time_feats"] = train_time_feats
+        result["val_time_feats"] = val_time_feats
+        result["test_time_feats"] = test_time_feats
+
+    return result

@@ -54,7 +54,7 @@ def append_run_summary(config: dict, metrics: dict, paths: dict,
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     row = _format_row([
         now,
-        config.get("model", "?"),
+        config.get("model_name", config.get("model", "?")),
         config.get("year", "?"),
         config.get("pred_len", "?"),
         paths.get("train_id", "?"),
